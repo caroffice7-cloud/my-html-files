@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>접수 관리자 페이지 | 자연사랑 생활장터</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="./css/style.css" />
+<style>
+  main.admin { max-width: 960px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--green-dark); background: #f0f5ee; }
+  .table-wrap { overflow-x: auto; }
+  .status-badge { padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+  .status-접수대기 { background: #fff3cd; color: #7a5b00; }
+  .status-접수완료 { background: #d9f2df; color: var(--green-dark); }
+  .status-반려 { background: #fdecea; color: var(--danger); }
+  .actions-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  .actions-row select { width: auto; }
+  .detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; font-size: 0.9rem; }
+  .detail-grid dt { font-weight: 600; color: #555; }
+  .detail-grid dd { margin: 0; }
+  .sig-preview { max-width: 260px; border: 1px solid var(--border); border-radius: 8px; }
+  #login-view { max-width: 360px; margin: 60px auto; }
+  .link-out { font-size: 0.82rem; }
+  .btn-danger { background: var(--danger); color: #fff; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>접수 관리자 페이지</h1>
+  <p>자연사랑 생활장터 · 신청 내역 조회/처리 (접수 담당자 전용)</p>
+</header>
+
+<main class="admin">
+
+  <section class="card" id="login-view">
+    <h2>관리자 로그인</h2>
+    <div class="field">
+      <label for="login-username">아이디</label>
+      <input type="text" id="login-username" autocomplete="username" />
+    </div>
+    <div class="field">
+      <label for="login-password">비밀번호</label>
+      <input type="password" id="login-password" autocomplete="current-password" />
+    </div>
+    <div id="login-error" class="error-list hidden"></div>
+    <button class="btn btn-primary" id="login-btn" style="width:100%">로그인</button>
+  </section>
+
+  <div id="dashboard-view" class="hidden">
+    <div class="actions-row">
+      <strong id="admin-username-label"></strong>
+      <span style="flex:1"></span>
+      <select id="status-filter">
+        <option value="">전체 상태</option>
+        <option value="접수대기">접수대기</option>
+        <option value="접수완료">접수완료</option>
+        <option value="반려">반려</option>
+      </select>
+      <button class="btn btn-secondary" id="refresh-btn">새로고침</button>
+      <button class="btn btn-secondary" id="logout-btn">로그아웃</button>
+    </div>
+
+    <section class="card">
+      <h2>신청 내역</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>접수일시</th><th>성명</th><th>연락처</th><th>자연사랑 회원</th>
+              <th>희망 결제액</th><th>희망 시작월</th><th>상태</th><th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="rows-body"></tbody>
+        </table>
+      </div>
+      <p class="hint" id="empty-msg">불러온 신청 내역이 없습니다.</p>
+    </section>
+  </div>
+
+  <div id="detail-modal" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:480px; text-align:left">
+      <h3 id="detail-title">신청 상세</h3>
+      <dl class="detail-grid" id="detail-content"></dl>
+      <div id="detail-sig-wrap" style="margin-top:12px"></div>
+      <div class="actions-row" style="margin-top:16px">
+        <select id="detail-status-select">
+          <option value="접수대기">접수대기</option>
+          <option value="접수완료">접수완료</option>
+          <option value="반려">반려</option>
+        </select>
+        <button class="btn btn-primary" id="detail-save-btn">상태 저장</button>
+        <button class="btn btn-danger" id="detail-purge-btn">개인정보 파기(삭제)</button>
+      </div>
+      <p class="hint">파기 시 해당 신청 건의 모든 개인정보가 서버에서 영구 삭제됩니다 (제7조 2항).</p>
+      <button class="btn btn-secondary" id="detail-close-btn" style="width:100%;margin-top:8px">닫기</button>
+    </div>
+  </div>
+
+</main>
+
+<script src="./js/config.js"></script>
+<script src="./js/admin.js"></script>
+</body>
+</html>

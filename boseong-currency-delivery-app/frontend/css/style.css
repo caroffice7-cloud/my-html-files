@@ -1,0 +1,284 @@
+:root {
+  --green: #1f7a4d;
+  --green-dark: #16532f;
+  --ink: #2a2a26;
+  --paper: #f5f3ea;
+  --card: #ffffff;
+  --border: #d9d4c2;
+  --danger: #b3261e;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+header.app-header {
+  background: var(--green);
+  color: #fff;
+  padding: 18px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+header.app-header h1 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+header.app-header p {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  opacity: 0.9;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+  color: var(--green-dark);
+  border-bottom: 2px solid var(--green);
+  padding-bottom: 8px;
+}
+
+.notice {
+  background: #eef6ef;
+  border: 1px solid #cfe8d4;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 0.92rem;
+  margin-bottom: 16px;
+}
+
+.field {
+  margin-bottom: 14px;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+  font-size: 0.92rem;
+}
+
+.field .hint {
+  font-size: 0.78rem;
+  color: #6b6a5f;
+  margin-top: 4px;
+}
+
+input[type="text"],
+input[type="tel"],
+input[type="number"],
+input[type="date"],
+select,
+textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1rem;
+  background: #fff;
+  color: var(--ink);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.row-2 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.terms-box {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  background: #fbfaf5;
+  font-size: 0.88rem;
+  white-space: pre-line;
+}
+
+.terms-box h3 {
+  font-size: 0.95rem;
+  margin: 14px 0 4px;
+  color: var(--green-dark);
+}
+
+.terms-box h3:first-child { margin-top: 0; }
+
+.consent-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-top: 12px;
+  background: #fff;
+}
+
+.consent-line input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--green);
+  flex-shrink: 0;
+}
+
+.consent-line.required-missing {
+  border-color: var(--danger);
+}
+
+canvas#signature-pad {
+  width: 100%;
+  height: 160px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: #fff;
+  touch-action: none;
+}
+
+.sig-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.btn-secondary {
+  background: #eee;
+  color: var(--ink);
+}
+
+.btn-primary {
+  background: var(--green);
+  color: #fff;
+}
+
+.btn-submit {
+  width: 100%;
+  padding: 15px;
+  font-size: 1.05rem;
+  background: var(--green);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.btn-submit:disabled {
+  background: #a9a9a3;
+  cursor: not-allowed;
+}
+
+.error-list {
+  background: #fdecea;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 0.88rem;
+}
+
+.error-list ul { margin: 6px 0 0; padding-left: 18px; }
+
+footer.app-footer {
+  text-align: center;
+  font-size: 0.78rem;
+  color: #7a786c;
+  padding: 24px 16px 40px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  max-width: 380px;
+  text-align: center;
+}
+
+.modal-box h3 { color: var(--green-dark); margin-top: 8px; }
+
+.hidden { display: none !important; }
+
+/* PC(넓은 화면)에서는 2단 배치로 공간을 넓게 활용 — 모바일 앱과 동일한 코드로 PC 웹도 병행 지원 */
+@media (min-width: 900px) {
+  main { max-width: 960px; padding: 32px 24px; }
+  .row-2 { grid-template-columns: 1fr 1fr; }
+  .card { padding: 28px; }
+  header.app-header h1 { font-size: 1.4rem; }
+}
+
+@media (min-width: 900px) {
+  .layout-2col {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 20px;
+    align-items: start;
+  }
+}
