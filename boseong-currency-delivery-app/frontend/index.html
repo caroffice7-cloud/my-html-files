@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>보성군 지역화폐 쇼핑배달서비스 신청 | 자연사랑 생활장터</title>
+<meta name="theme-color" content="#1f7a4d" />
+<meta name="description" content="보성군 기본소득 지역화폐 쇼핑배달서비스 자연사랑 생활장터 신청서" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="./icons/icon.svg" />
+<link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+
+<header class="app-header">
+  <h1>자연사랑 생활장터 신청</h1>
+  <p>보성군 기본소득 지역화폐 쇼핑배달서비스 · 농업회사법인 히스메이커스(주)</p>
+</header>
+
+<main>
+
+  <div class="notice">
+    <strong>■ 사업 안내</strong><br />
+    보성군 AI 통합돌봄 클러스터 구축의 스타트 모델로, 기본소득 지역화폐(월 20만원)를 지역 내 온라인 쇼핑·배달 서비스로 연결하는
+    "자연사랑 생활장터 지역화폐 쇼핑배달서비스"를 운영합니다. 지역화폐 사용 범위·방법·사용처를 잘 모르셔서 어려움을 겪으시는 어르신 회원을 위해,
+    자연사랑 모임 회원을 대상으로 우선 시범 운영합니다.
+  </div>
+
+  <div id="error-box" class="error-list hidden">
+    <strong>아래 항목을 확인해 주세요.</strong>
+    <ul id="error-items"></ul>
+  </div>
+
+  <div class="layout-2col">
+    <div>
+      <form id="application-form" novalidate>
+
+        <section class="card">
+          <h2>신청인 정보</h2>
+
+          <div class="field">
+            <label for="name">성명 *</label>
+            <input type="text" id="name" name="name" autocomplete="name" required />
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label for="birthdate">생년월일 *</label>
+              <input type="date" id="birthdate" name="birthdate" required />
+            </div>
+            <div class="field">
+              <label for="phone">연락처(본인) *</label>
+              <input type="tel" id="phone" name="phone" placeholder="010-0000-0000" required />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="emergencyPhone">비상연락처(보호자/자녀 등)</label>
+            <input type="tel" id="emergencyPhone" name="emergencyPhone" placeholder="010-0000-0000" />
+          </div>
+
+          <div class="field">
+            <label for="address">주소(배송지) *</label>
+            <input type="text" id="address" name="address" autocomplete="street-address" required />
+          </div>
+
+          <div class="field">
+            <label>자연사랑 모임 소속 여부 *</label>
+            <div class="radio-group">
+              <label><input type="radio" name="naturelinkMember" value="yes" required /> 예</label>
+              <label><input type="radio" name="naturelinkMember" value="no" /> 아니오</label>
+            </div>
+          </div>
+
+          <div class="row-2">
+            <div class="field">
+              <label for="monthlyCurrencyAmount">월 지역화폐 수령액(원)</label>
+              <input type="number" id="monthlyCurrencyAmount" name="monthlyCurrencyAmount" min="0" step="10000" placeholder="예: 200000" />
+              <p class="hint">기본소득 지역화폐 월 20만원 기준</p>
+            </div>
+            <div class="field">
+              <label for="desiredPaymentAmount">참여 희망 결제 금액(원) *</label>
+              <input type="number" id="desiredPaymentAmount" name="desiredPaymentAmount" min="1" max="200000" step="10000" required />
+              <p class="hint">최대 월 200,000원 이내</p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>참여 희망 시작월 *</label>
+            <div class="row-2">
+              <select id="desiredStartYear" name="desiredStartYear" required></select>
+              <select id="desiredStartMonth" name="desiredStartMonth" required></select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="proxyWriter">(신청인 직접 서명이 어려운 경우) 대리 작성자 성명/관계</label>
+            <input type="text" id="proxyWriter" name="proxyWriter" placeholder="예: 홍길동 / 자녀" />
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>이용약관 (자연사랑 생활장터 지역화폐 쇼핑배달서비스, 시범사업용)</h2>
+          <div class="terms-box" id="terms-box">
+<h3>제1조 (목적)</h3>
+이 약관은 농업회사법인 히스메이커스 주식회사(이하 "운영사")가 보성군 AI 통합돌봄 클러스터 구축의 일환으로 운영하는 "자연사랑 생활장터 지역화폐 쇼핑배달서비스"(이하 "서비스")의 참여 조건, 결제 방법, 정산 절차를 정함을 목적으로 한다.
+
+<h3>제2조 (서비스의 정의)</h3>
+서비스는 회원이 보유한 기본소득 지역화폐를 운영사에 결제하면, 운영사가 회원을 대신하여 생활필수품을 온라인몰에서 직접 매입한 후 회원 자택으로 배송하는 소매 유통 서비스를 말한다. 본 서비스는 온라인몰에 대한 제3자 결제대행이 아니라, 운영사가 상품을 직접 매입하여 회원에게 재판매하는 소매업 형태로 운영된다.
+
+<h3>제3조 (참여 대상 및 자격)</h3>
+1. 1차 시범사업 참여 대상은 보성군 자연사랑 모임 소속 회원으로 한정한다.
+2. 보성군에 거주하며 기본소득 지역화폐(월 20만원)를 수령하는 자를 원칙으로 한다.
+3. 거동이 불편하여 직접 구매·배달 서비스 이용이 필요한 고령 회원을 우선 대상으로 한다.
+4. 시범사업 운영 결과에 따라 참여 대상 및 범위는 확대될 수 있다.
+
+<h3>제4조 (결제 방법)</h3>
+1. 회원은 월 최대 20만원 한도 내에서 기본소득 지역화폐로 결제한다.
+2. 결제는 운영사가 지정한 지역화폐 카드 결제기를 통해 이루어지며, 결제 금액과 회원에게 사전 고지한 상품 판매가는 항상 일치한다(차액 환급 없음).
+3. 별도의 구매대행 수수료는 청구하지 않으며, 운영 마진은 사전 공개된 상품 가격표 안에 포함되어 있다.
+4. 판매 주체(운영사)와 실제 상품 매입에 사용되는 카드 명의는 항상 동일하게 유지된다.
+
+<h3>제5조 (주문 및 배송 절차)</h3>
+1. 주문 접수: 회원(또는 보호자·자연사랑 봉사자)이 카카오톡 등으로 희망 품목을 전달하면 운영사가 주문서를 생성한다.
+2. 결제 확인: 지역화폐 결제 완료 후 주문이 확정된다.
+3. 구매 처리: 운영사가 회사 명의 카드로 온라인몰에서 동일 품목을 실제로 매입한다.
+4. 배송: 배송지는 회원 자택으로 지정하며, 온라인몰의 정상 배송 체계를 그대로 이용한다(별도 자체 배송 인력 없음).
+5. 수령 확인: 회원 또는 보호자가 수령을 확인하면 처리가 완료된다.
+
+<h3>제6조 (정산 일정)</h3>
+1. 운영사는 결제·매입·배송 내역을 회원별로 기록하고 관리한다.
+2. 정산은 일 단위 정산을 원칙으로 하며, 당일 결제·매입 건은 당일 또는 익영업일 이내에 정산 내역을 확정하여 회원에게 안내한다.
+3. 시범사업 기간 중 운영 경험에 따라 정산 주기 및 방식은 조정될 수 있으며, 변경 시 사전 안내한다.
+
+<h3>제7조 (개인정보의 수집 및 이용)</h3>
+1. 운영사는 서비스 신청 접수, 주문·배송 처리, 정산을 위해 성명, 연락처, 주소, 생년월일 등 최소한의 개인정보를 수집한다.
+2. 수집된 개인정보는 목적 달성 후 관계 법령이 정하는 기간 동안 보관 후 파기한다.
+3. 회원은 개인정보 제공에 대한 동의를 거부할 권리가 있으며, 이 경우 서비스 이용이 제한될 수 있다.
+
+<h3>제8조 (서비스의 변경 및 중단)</h3>
+운영사는 시범사업 운영 결과, 제도 변경, 불가피한 사유가 발생하는 경우 서비스 내용을 변경하거나 일시 중단할 수 있으며, 이 경우 회원에게 사전 안내한다.
+
+<h3>제9조 (문의처)</h3>
+서비스 관련 문의는 아래로 연락한다.
+- 운영사: 농업회사법인 히스메이커스 주식회사 (대표이사 김보연)
+- 연락처: 운영사 안내에 따름
+
+<h3>부칙</h3>
+본 약관은 2026년 9월 시범사업 시행일부터 적용한다.
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>신청 내용 확인 및 동의</h2>
+          <p style="font-size:0.9rem">
+            1. 위 신청인은 "자연사랑 생활장터 지역화폐 쇼핑배달서비스" 시범사업 참여를 신청합니다.<br />
+            2. 본인은 위 이용약관의 참여 조건, 결제 방법, 정산 일정을 확인하였으며 이에 동의합니다.<br />
+            3. 신청서에 기재한 개인정보는 서비스 신청 접수, 주문·배송 처리, 정산 목적으로만 사용되며, 목적 외 용도로 사용하지 않습니다.
+          </p>
+
+          <label class="consent-line" id="privacy-consent-line">
+            <input type="checkbox" id="privacyAgreed" name="privacyAgreed" required />
+            <span>[필수] 개인정보 수집·이용에 동의합니다. (제7조 — 수집 항목: 성명, 생년월일, 연락처, 주소 / 이용 목적: 신청 접수·주문 배송·정산)</span>
+          </label>
+
+          <label class="consent-line" id="terms-consent-line">
+            <input type="checkbox" id="termsAgreed" name="termsAgreed" required />
+            <span>[필수] 위 이용약관 전문(제1조~제9조, 부칙)을 확인하였으며 이에 동의합니다.</span>
+          </label>
+        </section>
+
+        <section class="card">
+          <h2>신청인 서명</h2>
+          <p class="hint">화면에 손가락(모바일) 또는 마우스(PC)로 서명해 주세요. 대리 작성 시 대리인이 서명합니다.</p>
+          <canvas id="signature-pad" width="600" height="160"></canvas>
+          <div class="sig-actions">
+            <button type="button" class="btn btn-secondary" id="clear-signature">서명 지우기</button>
+          </div>
+          <p class="hint" id="signature-status">아직 서명하지 않았습니다.</p>
+        </section>
+
+        <section class="card">
+          <p class="hint" style="margin:0 0 12px">신청일: <strong id="today-label"></strong> · 접수 담당: 농업회사법인 히스메이커스 주식회사</p>
+          <button type="submit" class="btn-submit" id="submit-btn">신청서 제출하기</button>
+        </section>
+
+      </form>
+    </div>
+  </div>
+
+</main>
+
+<footer class="app-footer">
+  © 농업회사법인 히스메이커스 주식회사 · 대표이사 김보연 · 자연사랑 생활장터
+</footer>
+
+<div class="modal-overlay hidden" id="success-modal">
+  <div class="modal-box">
+    <div style="font-size:2.2rem">✅</div>
+    <h3>신청이 접수되었습니다</h3>
+    <p id="success-detail" style="font-size:0.92rem;color:#555"></p>
+    <button class="btn btn-primary" id="modal-confirm">확인</button>
+  </div>
+</div>
+
+<script src="./js/config.js"></script>
+<script src="./js/app.js"></script>
+</body>
+</html>
