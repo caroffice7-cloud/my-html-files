@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기술보증기금 현장실사 발표 - 추가자료 | AI 산업 생태계와 기술의 정의</title>
+<style>
+  :root {
+    --navy: #0b2545;
+    --navy-2: #13315c;
+    --accent: #1f6feb;
+    --accent-2: #0aa96b;
+    --accent-3: #c98a1b;
+    --ink: #1b2430;
+    --sub: #56637a;
+    --line: #dfe6ef;
+    --bg: #f6f8fb;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.7;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 48px 28px 100px; }
+
+  header.cover {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 60%, #1a3f73 100%);
+    color: #fff;
+    border-radius: 18px;
+    padding: 44px 40px;
+    margin-bottom: 40px;
+    box-shadow: 0 12px 30px rgba(11,37,69,0.25);
+  }
+  header.cover .eyebrow {
+    display: inline-block;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+  }
+  header.cover h1 {
+    font-size: 30px;
+    line-height: 1.45;
+    margin: 0 0 12px;
+  }
+  header.cover p.sub {
+    font-size: 15.5px;
+    color: #cfe0fb;
+    margin: 0 0 22px;
+    max-width: 720px;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    font-size: 13.5px;
+    color: #d9e7fc;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    padding-top: 16px;
+  }
+  .meta-row b { color: #fff; }
+
+  section { margin-bottom: 44px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .sec-num {
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--accent);
+    padding: 3px 10px;
+    border-radius: 6px;
+    letter-spacing: 0.02em;
+  }
+  .sec-head h2 {
+    font-size: 21px;
+    margin: 0;
+    color: var(--navy);
+  }
+  .sec-head .en {
+    font-size: 12.5px;
+    color: var(--sub);
+    font-weight: 500;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px 28px;
+    box-shadow: 0 2px 10px rgba(20,30,50,0.04);
+  }
+  .card + .card { margin-top: 16px; }
+
+  .lead {
+    font-size: 15.5px;
+    color: var(--ink);
+    margin: 0 0 8px;
+  }
+  .lead b.key { color: var(--accent); }
+
+  /* 융복합 정의 카드 */
+  .fusion-terms {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin: 20px 0 6px;
+  }
+  .fusion-term {
+    text-align: center;
+    padding: 14px 8px;
+    border-radius: 10px;
+    background: #eef4ff;
+    border: 1px solid #d7e6ff;
+    font-size: 13px;
+    color: var(--navy-2);
+    font-weight: 600;
+  }
+  .fusion-plus {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .fusion-result {
+    margin-top: 14px;
+    text-align: center;
+    padding: 16px;
+    border-radius: 10px;
+    background: var(--navy);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  @media (max-width: 720px) {
+    .fusion-terms { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* 레이어 케이크 다이어그램 */
+  .cake {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 22px 0 10px;
+  }
+  .cake-layer {
+    border-radius: 12px;
+    padding: 18px 22px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .cake-layer .l-title { font-size: 15.5px; font-weight: 700; }
+  .cake-layer .l-desc { font-size: 13px; opacity: 0.92; font-weight: 400; }
+  .cake-layer .l-tag {
+    font-size: 11.5px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.35);
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .layer-3 { background: linear-gradient(90deg, #0aa96b, #0c8f5c); }
+  .layer-2 { background: linear-gradient(90deg, #1f6feb, #1657bd); }
+  .layer-1 { background: linear-gradient(90deg, #334862, #263a51); }
+  .cake-arrow {
+    text-align: center;
+    font-size: 12px;
+    color: var(--sub);
+    margin: -2px 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+    font-size: 13.5px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #eef2f8;
+    color: var(--navy-2);
+    font-weight: 700;
+    font-size: 13px;
+  }
+  td.num { color: var(--accent-2); font-weight: 700; white-space: nowrap; }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-top: 16px;
+  }
+  @media (max-width: 720px) { .grid-3 { grid-template-columns: 1fr; } }
+  .mini-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    background: #fbfcfe;
+  }
+  .mini-card h4 {
+    margin: 0 0 6px;
+    font-size: 14.5px;
+    color: var(--navy);
+  }
+  .mini-card p { margin: 0; font-size: 13px; color: var(--sub); }
+
+  .callout {
+    border-left: 4px solid var(--accent-3);
+    background: #fff8ec;
+    padding: 14px 18px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    color: #7a5410;
+    margin-top: 16px;
+  }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--sub);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media print {
+    body { background: #fff; }
+    header.cover { box-shadow: none; }
+    .card { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="cover">
+    <span class="eyebrow">기술보증기금 현장실사 발표 · 추가자료</span>
+    <h1>AI 산업 생태계와 기술의 정의<br>― 융복합 기술 관점의 보성군 AI 통합돌봄 서비스 인프라</h1>
+    <p class="sub">
+      본 자료는 기존 사업계획 발표자료(소득 구조, 기술성 평가 항목)에 대한 보완 설명으로,
+      ① 소득 구조 속 AI 생태계의 위치, ② AI 산업 생태계의 계층 구조, ③ "기술"의 정의를
+      단일 기술이 아닌 <b>융복합(Convergence)</b> 관점에서 재정리한 것입니다.
+    </p>
+    <div class="meta-row">
+      <span><b>발표기업</b> 농업회사법인 히스메이커스 주식회사</span>
+      <span><b>대표</b> 김보연 (대표이사 / BMC 마을방송국 총괄 기획·설계 디렉터)</span>
+      <span><b>연계사업</b> 보성군 AI 통합돌봄 데이터 파운드리 · BMC 마을방송국 · BMCTVda</span>
+    </div>
+  </header>
+
+  <!-- 1. 기술의 정의 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2>기술의 정의 — 융복합(Convergence) 기술</h2>
+      <span class="en">Definition of Technology</span>
+    </div>
+    <div class="card">
+      <p class="lead">
+        당사가 보유·구축하는 기술은 특정 단일 요소기술이 아니라,
+        <b class="key">서로 다른 이종(異種) 기술 영역이 하나의 서비스 목적(보성군 통합돌봄)으로 유기적으로 결합된 융복합 기술</b>로 정의합니다.
+        각 기술 요소는 개별적으로도 의미가 있으나, 결합되었을 때 비로소 "현장에서 작동하는 통합돌봄 인프라"로 완성됩니다.
+      </p>
+      <div class="fusion-terms">
+        <div class="fusion-term">AI · sLLM<br>뉴로심볼릭</div>
+        <div class="fusion-plus">+</div>
+        <div class="fusion-term">IoT 센싱<br>Matter · Wi-Fi</div>
+        <div class="fusion-plus">+</div>
+        <div class="fusion-term">HW 엔지니어링<br>모빌리티·공간</div>
+      </div>
+      <div class="fusion-terms" style="margin-top:-2px;">
+        <div class="fusion-term">로컬 데이터<br>파운드리·라벨링</div>
+        <div class="fusion-plus">+</div>
+        <div class="fusion-term">로컬 미디어·커머스<br>BMC·BMCTVda</div>
+        <div class="fusion-plus" style="visibility:hidden;">+</div>
+        <div class="fusion-term" style="visibility:hidden;"></div>
+      </div>
+      <div class="fusion-result">
+        = 보성군형 AI 통합돌봄 융복합 기술 (Region-based AI Care Convergence Technology)
+      </div>
+      <div class="callout">
+        <b>심사 포인트</b> — 융복합 기술의 기술성은 "요소기술의 난이도"가 아니라 "이종 기술 간 결합의 정합성과 현장 적용 가능성"으로 평가되어야 합니다.
+        당사는 수십 년간 축적한 BMC 마을방송국·BMCTVda의 현장 운영 데이터와 신뢰 기반 위에, AI·IoT·HW 기술을 결합함으로써
+        타 사업자가 단기간에 복제하기 어려운 진입장벽을 형성하고 있습니다.
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. AI 산업 생태계 3계층 구조 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2>AI 산업 생태계 — 3계층(레이어드 케이크) 구조</h2>
+      <span class="en">AI Industry Ecosystem</span>
+    </div>
+    <div class="card">
+      <p class="lead">
+        엔비디아 젠슨 황(Jensen Huang)이 제시한 AI 산업 구조 개념을 준용하면, AI 생태계는 크게
+        <b class="key">① 하드웨어 인프라 → ② 소프트웨어 인프라 → ③ 서비스(라스트마일)</b>의 3개 계층으로 구성됩니다.
+        당사는 이 구조에서 최종 사용자(보성군 고령자·주민)에게 가치가 전달되는
+        <b class="key">"라스트마일 서비스 계층"</b>을 직접 구축·운영하는 것을 핵심 사업모델로 합니다.
+      </p>
+
+      <div class="cake">
+        <div class="cake-layer layer-3">
+          <div>
+            <div class="l-title">③ 서비스 · 라스트마일 (Last-mile Service)</div>
+            <div class="l-desc">보성군 AI 통합돌봄 서비스 — 안심케어, 모빌리티 라스트마일, 로컬미디어·커머스 연계</div>
+          </div>
+          <span class="l-tag">당사 핵심 구축 영역</span>
+        </div>
+        <div class="cake-arrow">▲ 아래 계층 위에서 최종 서비스로 구현</div>
+        <div class="cake-layer layer-2">
+          <div>
+            <div class="l-title">② 소프트웨어 인프라 (Software Infrastructure)</div>
+            <div class="l-desc">로컬 데이터 파운드리, 라벨링 파이프라인(MLOps), sLLM·뉴로심볼릭 AI 추론</div>
+          </div>
+          <span class="l-tag">당사 구축·자체 확보</span>
+        </div>
+        <div class="cake-arrow">▲ 데이터·모델이 구동되는 기반</div>
+        <div class="cake-layer layer-1">
+          <div>
+            <div class="l-title">① 하드웨어 인프라 (Hardware Infrastructure)</div>
+            <div class="l-desc">Matter IoT 센서, Wi-Fi 비접촉 센싱 디바이스, 모듈러 엣지 데이터센터, e-모빌리티(모벨릭스)</div>
+          </div>
+          <span class="l-tag">엣지 단위 자체 설계</span>
+        </div>
+      </div>
+
+      <div class="callout">
+        <b>비교 포인트</b> — 빅테크는 ①·② 계층(칩·클라우드·범용 모델)을 중심으로 경쟁하지만,
+        지역 기반 사업자인 당사는 그 위에서 지역 맥락(방언·생활패턴·고령자 케어 수요)에 맞춘
+        <b>③ 라스트마일 서비스</b>를 직접 설계·운영함으로써, 대형 플랫폼이 대체하기 어려운 "현장 밀착형 AI 서비스"를 제공합니다.
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 기타 AI 생태계 요소 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2>기타 AI 생태계 구성 요소</h2>
+      <span class="en">Supporting Ecosystem Elements</span>
+    </div>
+    <div class="card">
+      <p class="lead">3계층 구조를 지지하는 부가 생태계 요소는 다음과 같습니다.</p>
+      <div class="grid-3">
+        <div class="mini-card">
+          <h4>로컬 데이터 파운드리</h4>
+          <p>보성 지역 방언, 생활 맥락, 시니어 라이프스타일 패턴 데이터를 수집·정제·가공하는 데이터 파운드리 및 라벨링 파이프라인</p>
+        </div>
+        <div class="mini-card">
+          <h4>모듈러 엣지 데이터센터</h4>
+          <p>스마트팜·스마트돌봄 데이터를 지역 내에서 실시간·안전하게 처리하는 분산형 엣지 인프라</p>
+        </div>
+        <div class="mini-card">
+          <h4>로컬 미디어·커머스</h4>
+          <p>BMC 마을방송국(콘텐츠·신뢰 자산) + BMCTVda(로컬 커머스)로 AI 서비스의 데이터·유통 채널 역할 수행</p>
+        </div>
+        <div class="mini-card">
+          <h4>라스트마일 모빌리티</h4>
+          <p>모벨릭스 4륜 e-모빌리티·전기자전거 기반 지역 맞춤형 이동·물류 및 관제 시스템</p>
+        </div>
+        <div class="mini-card">
+          <h4>공간·하드웨어 엔지니어링</h4>
+          <p>제조·케어·목공 공간 구획 설계 및 물리적 기구물 제작 — 서비스 운영의 물리적 기반</p>
+        </div>
+        <div class="mini-card">
+          <h4>지자체·R&D 연계</h4>
+          <p>보성군 스마트 돌봄·스마트팜 사업, 테크노파크 R&D·시제품 제작 지원사업과의 연계</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 소득 부분 - AI 생태계 연계 -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2>소득(수익) 구조 — AI 생태계 계층별 수익모델</h2>
+      <span class="en">Revenue Structure Linked to the AI Ecosystem</span>
+    </div>
+    <div class="card">
+      <p class="lead">
+        앞선 3계층 AI 생태계 구조는 곧 당사의 <b class="key">다각화된 소득(수익) 구조</b>와 직접 대응됩니다.
+        단일 매출원이 아니라, 계층별로 독립적이면서도 상호 연계된 수익모델을 보유하고 있습니다.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>AI 생태계 계층</th>
+            <th>수익모델</th>
+            <th>연계 사업</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num">③ 서비스<br>(라스트마일)</td>
+            <td>통합돌봄 서비스 이용료·구독료, 케어 매칭 수수료, 라스트마일 모빌리티 이용·물류 수익</td>
+            <td>보성군 AI 통합돌봄 서비스, 모벨릭스 라스트마일</td>
+          </tr>
+          <tr>
+            <td class="num">② 소프트웨어<br>인프라</td>
+            <td>지역 특화 데이터 라벨링·가공 용역 수익, sLLM 파인튜닝·공급 수익</td>
+            <td>로컬 AI 데이터 파운드리, MLOps 파이프라인</td>
+          </tr>
+          <tr>
+            <td class="num">① 하드웨어<br>인프라</td>
+            <td>IoT 센싱 디바이스·엣지 설비 공급 및 유지보수 수익, 공간·기구물 제작 수익</td>
+            <td>Matter IoT, 모듈러 엣지 데이터센터, HW 엔지니어링</td>
+          </tr>
+          <tr>
+            <td class="num">생태계 기반</td>
+            <td>로컬 콘텐츠·광고·중개 수익, 로컬 상품 직거래 커머스 수익</td>
+            <td>BMC 마을방송국, BMCTVda</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <b>정리</b> — 당사의 소득 구조는 "돌봄 서비스 단일 매출"이 아니라, AI 생태계 3계층 전반에 걸친
+        데이터·인프라·서비스·커머스 수익이 유기적으로 결합된 구조이며, 이는 곧 02장에서 정의한
+        <b>융복합 기술</b>이 실제 매출로 전환되는 구조임을 보여줍니다.
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>농업회사법인 히스메이커스 주식회사 · 김보연 대표</span>
+    <span>기술보증기금 현장실사 발표자료 — 추가 보완 자료</span>
+  </footer>
+
+</div>
+</body>
+</html>
