@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS products (
   stock           INTEGER NOT NULL DEFAULT 0,
   shipping_fee    INTEGER NOT NULL DEFAULT 0,
   free_ship_over  INTEGER NOT NULL DEFAULT 0,
+  commission_rate REAL,
   status          TEXT NOT NULL DEFAULT '승인대기',
   reject_reason   TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
@@ -189,6 +190,23 @@ ensureColumn('orders', 'refund_bearer', 'TEXT');
 ensureColumn('orders', 'refund_cost', 'INTEGER NOT NULL DEFAULT 0');
 // 공급처 부담 반품비용 공제액(계약서 제8조 정산)
 ensureColumn('settlements', 'supplier_cost', 'INTEGER NOT NULL DEFAULT 0');
+// 상품별 개별 수수료율 — 비우면 공급처 계약 기본율을 따른다
+ensureColumn('products', 'commission_rate', 'REAL');
+
+// 수수료율 협의 이력 (누가 언제 몇 %로 정했는지 남긴다)
+db.exec(`
+CREATE TABLE IF NOT EXISTS commission_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER REFERENCES suppliers(id) ON DELETE CASCADE,
+  product_id  INTEGER REFERENCES products(id) ON DELETE CASCADE,
+  scope       TEXT NOT NULL,
+  old_rate    REAL,
+  new_rate    REAL,
+  memo        TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_commission_logs_supplier ON commission_logs(supplier_id);
+`);
 
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const all = (sql, ...p) => db.prepare(sql).all(...p);

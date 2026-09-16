@@ -3,7 +3,7 @@
 /* 공급처 화면 로직 — 상품 등록·수정, 주문 발송, 판매현황·정산 */
 
 const won = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
-const pct = (r) => (r == null ? '미확정' : `${Math.round(r * 100)}%`);
+const pct = (r) => (r == null ? '미확정' : `${Math.round(r * 10000) / 100}%`);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -72,7 +72,7 @@ async function renderProducts() {
     ${rejected ? `<div class="alert alert-warn">반려된 상품이 있습니다. 사유를 확인하고 수정한 뒤 다시 승인 요청해 주세요.</div>` : ''}
     <div class="table-scroll"><table>
       <thead><tr><th>사진</th><th>상품명</th><th>분류</th><th>규격</th><th class="num">공급가</th><th class="num">권장판매가</th>
-        <th class="num">재고</th><th class="num">누적판매</th><th>상태</th><th></th></tr></thead>
+        <th class="num">재고</th><th class="num">누적판매</th><th>수수료</th><th>상태</th><th></th></tr></thead>
       <tbody>${d.products.map((p) => `<tr>
         <td>${p.images[0] ? `<img src="${esc(p.images[0].url)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px">` : '<span class="mini muted">없음</span>'}</td>
         <td><b>${esc(p.name)}</b>${p.reject_reason ? `<br><span class="mini" style="color:var(--red-600)">반려: ${esc(p.reject_reason)}</span>` : ''}</td>
@@ -82,6 +82,9 @@ async function renderProducts() {
         <td class="num">${p.suggested_price ? won(p.suggested_price) : '<span class="mini muted">미입력</span>'}</td>
         <td class="num">${p.stock}</td>
         <td class="num">${p.soldQty}</td>
+        <td class="mini">${p.rate_confirmed
+          ? `${pct(p.effective_rate)}${p.rate_source === '상품 개별' ? ' <span class="mini">(개별)</span>' : ''}`
+          : '<span style="color:var(--amber-600)">협의 전</span>'}</td>
         <td><span class="badge b-${esc(p.status)}">${esc(p.status)}</span></td>
         <td>
           <button class="btn btn-sm btn-outline" onclick="openProduct(${p.id})">수정</button>

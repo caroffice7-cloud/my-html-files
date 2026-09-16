@@ -6,6 +6,7 @@ const { get, all, run, tx } = require('../db');
 const { Router, readJson, sendJson, HttpError } = require('../lib/http');
 const auth = require('../lib/auth');
 const { saveDataUrl, removeUpload } = require('../lib/upload');
+const { effectiveRate } = require('../lib/commission');
 const { CHANNELS } = require('../seed');
 
 const router = new Router();
@@ -67,8 +68,12 @@ router.post('/api/supplier/password', async (req, res) => {
 
 // ── 상품 ──
 function productWithExtras(p) {
+  const eff = effectiveRate(p);
   return {
     ...p,
+    effective_rate: eff.rate,
+    rate_source: eff.source,
+    rate_confirmed: eff.confirmed,
     images: all('SELECT id, url, sort_order FROM product_images WHERE product_id = ? ORDER BY sort_order, id', p.id),
     channels: all('SELECT channel, listed, channel_price, channel_url FROM channel_listings WHERE product_id = ?', p.id),
     soldQty: get(`SELECT IFNULL(SUM(oi.qty),0) AS q FROM order_items oi JOIN orders o ON o.id = oi.order_id

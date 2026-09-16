@@ -3,7 +3,8 @@
 /* 운영자(히스메이커스) 통합 관리 화면 */
 
 const won = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
-const pct = (r) => (r == null ? '미확정' : `${Math.round(r * 100)}%`);
+const pct = (r) => (r == null ? '미확정' : `${Math.round(r * 10000) / 100}%`);
+const asPct = (r) => (r == null ? '' : String(Math.round(r * 10000) / 100));
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -38,6 +39,7 @@ async function boot() {
   state.orderStatuses = me.orderStatuses;
   state.refundBearers = me.refundBearers || ['공급처', '소비자', '히스메이커스'];
   state.refundReasons = me.refundReasons || [];
+  state.supplierStatuses = me.supplierStatuses || ['협의중', '계약중', '계약종료'];
   document.querySelectorAll('.admin-nav button').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
   switchView('dashboard');
 }
@@ -46,7 +48,8 @@ function switchView(v) {
   document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   document.querySelectorAll('.admin-wrap > section').forEach((s) => s.classList.toggle('hidden', s.id !== `view-${v}`));
   ({ dashboard: renderDashboard, products: renderProducts, channels: renderChannels, orders: renderOrders,
-     suppliers: renderSuppliers, settlement: renderSettlement, settings: renderSettings }[v])();
+     suppliers: renderSuppliers, commissions: renderCommissions, settlement: renderSettlement,
+     settings: renderSettings }[v])();
 }
 
 /* ── 대시보드 ── */
@@ -112,7 +115,7 @@ async function renderProducts() {
     </div>
     <div class="table-scroll"><table>
       <thead><tr><th>사진</th><th>상품</th><th>공급처</th><th>분류</th><th class="num">공급가</th><th class="num">권장판매가</th>
-        <th class="num">재고</th><th>상태</th><th>채널 노출</th><th></th></tr></thead>
+        <th class="num">재고</th><th>수수료</th><th>상태</th><th>채널 노출</th><th></th></tr></thead>
       <tbody>${d.products.map((p) => `<tr>
         <td>${p.images[0] ? `<img src="${esc(p.images[0].url)}" style="width:44px;height:44px;object-fit:cover;border-radius:6px">` : '<span class="mini muted">없음</span>'}</td>
         <td><b>${esc(p.name)}</b><br><span class="mini">${esc(p.spec)}${p.origin ? ` · ${esc(p.origin)}` : ''}</span>
@@ -122,13 +125,15 @@ async function renderProducts() {
         <td class="num">${p.supply_price ? won(p.supply_price) : '<span class="mini muted">미입력</span>'}</td>
         <td class="num">${p.suggested_price ? won(p.suggested_price) : '<span class="mini muted">미입력</span>'}</td>
         <td class="num">${p.stock}</td>
+        <td><span class="rate-tag ${p.rate_source === '상품 개별' ? 'own' : p.rate_confirmed ? 'base' : 'none'}">
+          ${p.rate_confirmed ? `${asPct(p.effective_rate)}%` : '미확정'}</span></td>
         <td><span class="badge b-${esc(p.status)}">${esc(p.status)}</span></td>
         <td class="mini">${p.channels.filter((c) => c.listed).map((c) => c.channel).join(', ') || '-'}</td>
         <td>
           ${p.status === '승인대기' ? `<button class="btn btn-sm btn-primary" onclick="approve(${p.id}, true)">승인</button>
             <button class="btn btn-sm btn-danger" onclick="approve(${p.id}, false)">반려</button>` : ''}
           <button class="btn btn-sm btn-outline" onclick="openProduct(${p.id})">상세</button>
-        </td></tr>`).join('') || '<tr><td colspan="10" class="muted">상품이 없습니다.</td></tr>'}
+        </td></tr>`).join('') || '<tr><td colspan="11" class="muted">상품이 없습니다.</td></tr>'}
       </tbody></table></div>`;
 }
 
@@ -166,6 +171,11 @@ function openProduct(id) {
       <div><label class="mini">공급가</label><input id="epSupply" type="number" value="${p.supply_price}"></div>
       <div><label class="mini">권장판매가</label><input id="epSuggested" type="number" value="${p.suggested_price}"></div>
       <div><label class="mini">재고</label><input id="epStock" type="number" value="${p.stock}"></div>
+      <div><label class="mini">개별 수수료율 (%)</label>
+        <input id="epRate" type="number" step="0.1" min="0" max="100" value="${asPct(p.commission_rate)}"
+          placeholder="비우면 공급처 기본율"></div>
+      <div><label class="mini">적용 요율</label>
+        <input value="${p.rate_confirmed ? `${asPct(p.effective_rate)}% (${p.rate_source})` : '미확정'}" disabled></div>
       <div><label class="mini">상태</label><select id="epStatus">
         ${['승인대기', '판매중', '반려', '품절', '판매중지'].map((s) => `<option ${p.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
       <div style="grid-column:1/-1"><label class="mini">원재료명</label><input id="epIngredients" value="${esc(p.ingredients)}"></div>
@@ -227,7 +237,7 @@ async function saveProduct(id) {
       ingredients: $('epIngredients').value.trim(), noticeItems: $('epNotice').value.trim(),
       description: $('epDesc').value.trim(), supplyPrice: Number($('epSupply').value || 0),
       suggestedPrice: Number($('epSuggested').value || 0), stock: Number($('epStock').value || 0),
-      status: $('epStatus').value,
+      status: $('epStatus').value, commissionRate: $('epRate').value.trim(),
     } });
     dlg.close();
     renderProducts();
@@ -506,26 +516,30 @@ function openSupplier(id) {
       <div><label class="mini">${s ? '비밀번호 재설정 (8자 이상)' : '초기 비밀번호 (비우면 자동 생성)'}</label>
         <input id="sPassword" type="text" placeholder="${s ? '변경할 때만 입력' : '아이디+2026'}"></div>
       <div><label class="mini">상태</label><select id="sStatus">
-        ${['계약중', '계약종료'].map((v) => `<option ${s?.status === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        ${(state.supplierStatuses || ['협의중', '계약중', '계약종료']).map((v) =>
+          `<option ${(s?.status || '협의중') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div style="grid-column:1/-1"><label class="mini">소개글 (상품 상세페이지에 표시)</label>
         <textarea id="sIntro" rows="2">${esc(s?.intro)}</textarea></div>
     </div>
 
     <h4 style="margin-top:18px">위탁판매 계약 조건</h4>
     <div class="row-form">
-      <div><label class="mini">판매수수료율 (0.25 = 25%)</label>
-        <input id="cRate" type="number" step="0.01" value="${c.commission_rate ?? ''}" placeholder="미확정이면 비워 두세요"></div>
+      <div><label class="mini">판매수수료율 (%)</label>
+        <input id="cRate" type="number" step="0.1" min="0" max="100" value="${asPct(c.commission_rate)}" placeholder="협의 전이면 비워 두세요"></div>
       <div><label class="mini">정산 주기</label><input id="cCycle" value="${esc(c.settlement_cycle || '익월 15일')}"></div>
       <div><label class="mini">배송 방식</label><input id="cShipping" value="${esc(c.shipping_method || '위탁배송(공급처 직발송)')}"></div>
       <div><label class="mini">출고 기한 (영업일)</label><input id="cShipDays" type="number" value="${c.ship_days ?? ''}"></div>
-      <div><label class="mini">할인 허용 한도 (0.2 = 20%)</label><input id="cDiscount" type="number" step="0.01" value="${c.discount_limit_rate ?? ''}"></div>
+      <div><label class="mini">할인 허용 한도 (%)</label><input id="cDiscount" type="number" step="0.1" min="0" max="100" value="${asPct(c.discount_limit_rate)}" placeholder="협의 전이면 비워 두세요"></div>
       <div><label class="mini">채널수수료 부담</label><input id="cFeeBearer" value="${esc(c.channel_fee_bearer || '수탁자(히스메이커스) 부담')}"></div>
       <div><label class="mini">계약 시작일</label><input id="cStart" type="date" value="${esc(c.contract_start)}"></div>
       <div><label class="mini">계약 기간</label><input id="cPeriod" value="${esc(c.contract_period || '1년(자동연장)')}"></div>
       <div style="grid-column:1/-1"><label class="mini">수수료 비고</label><input id="cNote" value="${esc(c.commission_note)}"></div>
       <div style="grid-column:1/-1"><label class="mini">특약 · 비고</label><textarea id="cMemo" rows="2">${esc(c.note)}</textarea></div>
     </div>
-    <p class="mini" style="margin-top:8px">수수료율을 비워 두면 "미확정"으로 저장되며, 주문 시 수수료가 0원으로 계산됩니다.</p>
+    <p class="mini" style="margin-top:8px">
+      수수료율을 비워 두면 "미확정"으로 저장되며, 주문 시 수수료가 0원으로 계산됩니다.<br>
+      상품마다 다른 요율로 합의한 경우에는 <b>수수료 관리</b> 화면에서 상품별로 따로 입력하십시오.
+    </p>
     <div id="sMsg"></div>`;
   $('dlgFoot').innerHTML = `
     <button class="btn btn-sm btn-ghost" onclick="dlg.close()">취소</button>
@@ -562,6 +576,104 @@ async function saveSupplier(id) {
     dlg.close();
     renderSuppliers();
   } catch (err) { $('sMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+}
+
+/* ── 수수료 관리 ── */
+
+async function renderCommissions() {
+  const d = await api('/api/admin/commissions');
+  state.commissions = d;
+
+  $('view-commissions').innerHTML = `
+    <div class="panel">
+      <h3>판매수수료율 관리</h3>
+      <p class="mini">
+        농가·소상공인과 협의한 요율을 여기서 바로 입력합니다. <b>%로 입력</b>하시면 됩니다(예: 20).<br>
+        · <b>공급처 기본율</b> — 그 공급처의 모든 상품에 적용<br>
+        · <b>상품 개별율</b> — 특정 상품만 다르게 합의한 경우에만 입력(비우면 기본율을 따릅니다)<br>
+        · 비워 두면 <b>미확정</b>으로 표시되고 주문 시 수수료가 0원으로 계산됩니다.
+      </p>
+      ${d.unconfirmed.length ? `<div class="alert alert-warn">
+        기본 수수료율이 정해지지 않은 공급처: <b>${d.unconfirmed.map((u) => esc(u.name)).join(', ')}</b>
+        — 협의 후 입력해 주세요.</div>` : ''}
+    </div>
+
+    ${d.suppliers.map((sup) => `
+      <div class="supplier-block" data-supplier="${sup.id}">
+        <div class="supplier-head">
+          <span class="nm">${esc(sup.name)}</span>
+          <span class="badge b-${esc(sup.status)}">${esc(sup.status)}</span>
+          <span class="mini">상품 ${sup.productCount}건${sup.overrideCount ? ` · 개별 요율 ${sup.overrideCount}건` : ''}</span>
+          <span class="base">
+            <label class="mini">기본 수수료율</label>
+            <input class="rate-input supplier-rate ${sup.baseRate == null ? 'unset' : ''}" type="number" step="0.1" min="0" max="100"
+              value="${asPct(sup.baseRate)}" placeholder="미정" data-id="${sup.id}">
+            <span class="mini">%</span>
+            <button class="btn btn-sm btn-ghost" onclick="resetOverrides(${sup.id})"
+              ${sup.overrideCount ? '' : 'disabled'}>개별 요율 해제</button>
+          </span>
+        </div>
+        ${sup.commissionNote ? `<p class="mini" style="padding:8px 14px 0;margin:0">계약 메모: ${esc(sup.commissionNote)}</p>` : ''}
+        <table>
+          <thead><tr><th>상품</th><th>분류</th><th class="num">권장판매가</th><th class="num">누적 판매</th>
+            <th class="num">개별 요율(%)</th><th>적용 요율</th><th class="num">건당 수수료</th></tr></thead>
+          <tbody>${sup.products.map((p) => `<tr>
+            <td>${esc(p.name)}<br><span class="mini">${esc(p.spec)}</span></td>
+            <td class="mini">${esc(p.category)}</td>
+            <td class="num">${p.suggestedPrice ? won(p.suggestedPrice) : '<span class="mini muted">미입력</span>'}</td>
+            <td class="num">${p.sold ? won(p.sold) : '-'}</td>
+            <td class="num"><input class="rate-input product-rate" type="number" step="0.1" min="0" max="100"
+              value="${asPct(p.ownRate)}" placeholder="기본율" data-id="${p.id}"></td>
+            <td><span class="rate-tag ${p.rateSource === '상품 개별' ? 'own' : p.rateConfirmed ? 'base' : 'none'}">
+              ${p.rateConfirmed ? `${asPct(p.effectiveRate)}% · ${esc(p.rateSource)}` : '미확정'}</span></td>
+            <td class="num">${p.suggestedPrice && p.rateConfirmed
+              ? `${won(Math.round(p.suggestedPrice * p.effectiveRate))} <span class="mini">(정산 ${won(p.suggestedPrice - Math.round(p.suggestedPrice * p.effectiveRate))})</span>`
+              : '<span class="mini muted">-</span>'}</td>
+          </tr>`).join('') || '<tr><td colspan="7" class="muted">등록된 상품이 없습니다.</td></tr>'}</tbody>
+        </table>
+      </div>`).join('')}
+
+    <div class="panel">
+      <h3>수수료율 변경 이력</h3>
+      <table><thead><tr><th>일시</th><th>대상</th><th>구분</th><th class="num">이전</th><th class="num">변경</th><th>메모</th></tr></thead>
+        <tbody>${d.logs.map((l) => `<tr>
+          <td class="mini">${esc(l.created_at)}</td>
+          <td>${esc(l.supplier_name) || '-'}${l.product_name ? ` <span class="mini">/ ${esc(l.product_name)}</span>` : ''}</td>
+          <td class="mini">${esc(l.scope)}</td>
+          <td class="num">${l.old_rate == null ? '미정' : asPct(l.old_rate) + '%'}</td>
+          <td class="num"><b>${l.new_rate == null ? '미정(기본율 적용)' : asPct(l.new_rate) + '%'}</b></td>
+          <td class="mini">${esc(l.memo) || ''}</td>
+        </tr>`).join('') || '<tr><td colspan="6" class="muted">변경 이력이 없습니다.</td></tr>'}</tbody></table>
+    </div>
+
+    <div class="commission-bar">
+      <input id="cmMemo" placeholder="협의 메모 (예: 2026-09-16 김보연 대표 방문 협의)" style="flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+      <button class="btn btn-sm btn-primary" onclick="saveCommissions()">변경 내용 저장</button>
+      <button class="btn btn-sm btn-ghost" onclick="renderCommissions()">되돌리기</button>
+      <span id="cmMsg" class="mini"></span>
+    </div>`;
+}
+
+async function saveCommissions() {
+  const memo = $('cmMemo').value.trim();
+  const suppliers = [...document.querySelectorAll('.supplier-rate')].map((el) => ({ id: Number(el.dataset.id), rate: el.value.trim() }));
+  const products = [...document.querySelectorAll('.product-rate')].map((el) => ({ id: Number(el.dataset.id), rate: el.value.trim() }));
+  try {
+    const d = await api('/api/admin/commissions', { method: 'PUT', body: { suppliers, products, memo } });
+    await renderCommissions();
+    $('cmMsg').innerHTML = d.changed
+      ? `<span style="color:var(--green-700);font-weight:700">${d.changed}건 저장했습니다.</span>`
+      : '변경된 내용이 없습니다.';
+  } catch (err) {
+    $('cmMsg').innerHTML = `<span style="color:var(--red-600);font-weight:700">${esc(err.message)}</span>`;
+  }
+}
+
+async function resetOverrides(supplierId) {
+  if (!confirm('이 공급처의 상품 개별 요율을 모두 지우고 기본율로 되돌릴까요?')) return;
+  const d = await api(`/api/admin/commissions/${supplierId}/reset`, { method: 'POST', body: { memo: $('cmMemo')?.value.trim() } });
+  await renderCommissions();
+  $('cmMsg').textContent = `${d.cleared}건을 기본율로 되돌렸습니다.`;
 }
 
 /* ── 정산 ── */

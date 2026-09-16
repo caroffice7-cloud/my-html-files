@@ -4,6 +4,7 @@
 
 const { get, all, run, tx, setting } = require('../db');
 const { Router, readJson, sendJson, HttpError } = require('../lib/http');
+const { effectiveRate } = require('../lib/commission');
 
 const router = new Router();
 const SELF = '자사몰';
@@ -119,8 +120,7 @@ function priceOrder(rawItems) {
     if (product.stock > 0 && qty > product.stock) {
       throw new HttpError(409, `"${product.name}" 재고가 ${product.stock}개 남아 있습니다. 수량을 줄여 주세요.`);
     }
-    const contract = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', product.supplier_id);
-    const rate = contract && contract.commission_rate != null ? contract.commission_rate : 0;
+    const rate = effectiveRate(product).rate;
     const unit = salePrice(product);
     const subtotal = unit * qty;
     const commission = Math.round(subtotal * rate);

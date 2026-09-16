@@ -72,3 +72,17 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .channel-row { display:grid; grid-template-columns:120px 90px 1fr 1fr auto; gap:8px; align-items:center; margin-bottom:8px; }
 @media (max-width: 720px) { .channel-row { grid-template-columns:1fr 1fr; } }
 .contract-box { background:var(--green-50); border:1px solid var(--green-100); border-radius:10px; padding:12px 14px; font-size:.88rem; }
+
+/* 수수료 관리 화면 */
+.supplier-block { border:1px solid var(--line); border-radius:12px; margin-bottom:14px; background:#fff; overflow:hidden; }
+.supplier-head { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 14px; background:var(--soft); border-bottom:1px solid var(--line); }
+.supplier-head .nm { font-weight:800; font-size:1.02rem; }
+.supplier-head .base { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.rate-input { width:86px; padding:7px 9px; border:1px solid var(--line); border-radius:8px; text-align:right; font-weight:700; }
+.rate-input.unset { background:#fff7ed; border-color:#fdba74; }
+.rate-tag { font-size:.74rem; font-weight:800; padding:2px 7px; border-radius:5px; }
+.rate-tag.own { background:#ede9fe; color:#5b21b6; }
+.rate-tag.base { background:#dcfce7; color:#166534; }
+.rate-tag.none { background:#fee2e2; color:#991b1b; }
+.commission-bar { position:sticky; bottom:0; background:#fff; border-top:2px solid var(--line); padding:10px 14px;
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap; z-index:15; }

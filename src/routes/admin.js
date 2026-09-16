@@ -9,11 +9,13 @@ const { toCsv } = require('../lib/csv');
 const { CHANNELS } = require('../seed');
 const { normalizePhone, nextOrderNo } = require('./shop');
 const { monthStart, monthEnd } = require('./supplier');
+const { effectiveRate, normalizeRate, logChange } = require('../lib/commission');
 
 const router = new Router();
 const ORDER_STATUSES = ['주문접수', '공급처전달', '출고', '배송중', '완료', '반품'];
 const PRODUCT_STATUSES = ['승인대기', '판매중', '반려', '품절', '판매중지'];
 const REFUND_BEARERS = ['공급처', '소비자', '히스메이커스'];
+const SUPPLIER_STATUSES = ['협의중', '계약중', '계약종료'];
 const REFUND_REASONS = ['상품 하자', '오배송', '표시·광고 상이', '단순 변심', '상품정보 오기재', '주문 전달 누락'];
 
 // ── 인증 ──
@@ -27,7 +29,7 @@ router.post('/api/admin/logout', (req, res) => {
   sendJson(res, 200, { ok: true });
 });
 router.get('/api/admin/me', (req, res) => {
-  sendJson(res, 200, { authenticated: !!auth.currentAdmin(req), channels: CHANNELS, orderStatuses: ORDER_STATUSES, refundBearers: REFUND_BEARERS, refundReasons: REFUND_REASONS });
+  sendJson(res, 200, { authenticated: !!auth.currentAdmin(req), channels: CHANNELS, orderStatuses: ORDER_STATUSES, refundBearers: REFUND_BEARERS, refundReasons: REFUND_REASONS, supplierStatuses: SUPPLIER_STATUSES });
 });
 
 // ── 대시보드 ──
@@ -70,8 +72,12 @@ router.get('/api/admin/dashboard', (req, res) => {
 
 // ── 상품 통합 관리 ──
 function adminProduct(p) {
+  const eff = effectiveRate(p);
   return {
     ...p,
+    effective_rate: eff.rate,
+    rate_source: eff.source,
+    rate_confirmed: eff.confirmed,
     supplier_name: get('SELECT name FROM suppliers WHERE id = ?', p.supplier_id)?.name,
     images: all('SELECT id, url FROM product_images WHERE product_id = ? ORDER BY sort_order, id', p.id),
     channels: all('SELECT * FROM channel_listings WHERE product_id = ?', p.id),
@@ -120,6 +126,16 @@ router.put('/api/admin/products/:id', async (req, res, ctx) => {
   const b = await readJson(req);
   const p = get('SELECT * FROM products WHERE id = ?', Number(ctx.params.id));
   if (!p) throw new HttpError(404, '상품을 찾을 수 없습니다.');
+
+  if (b.commissionRate !== undefined) {
+    const next = normalizeRate(b.commissionRate);
+    if (next !== p.commission_rate) {
+      run('UPDATE products SET commission_rate = ? WHERE id = ?', next, p.id);
+      logChange({ supplierId: p.supplier_id, productId: p.id, scope: '상품', oldRate: p.commission_rate,
+        newRate: next, memo: b.commissionMemo || `${p.name} 개별 수수료율 변경` });
+    }
+  }
+
   run(
     `UPDATE products SET name=?, category=?, spec=?, origin=?, shelf_life=?, storage=?, ingredients=?, notice_items=?,
             description=?, supply_price=?, suggested_price=?, stock=?, shipping_fee=?, free_ship_over=?, status=?,
@@ -194,16 +210,17 @@ router.post('/api/admin/suppliers', async (req, res) => {
   const id = tx(() => {
     const ins = run(
       `INSERT INTO suppliers(name, ceo, biz_no, tax_type, address, phone, email, login_id, password_hash, password_salt, intro, status)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,'계약중')`,
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
       b.name, b.ceo || null, b.bizNo || null, b.taxType || null, b.address || null,
-      b.phone || null, b.email || null, b.loginId, hash, salt, b.intro || null
+      b.phone || null, b.email || null, b.loginId, hash, salt, b.intro || null,
+      SUPPLIER_STATUSES.includes(b.status) ? b.status : '협의중'
     );
     const sid = Number(ins.lastInsertRowid);
     run(
       `INSERT INTO supplier_contracts(supplier_id, commission_rate, commission_note, settlement_cycle,
                                       shipping_method, ship_days, discount_limit_rate, note)
        VALUES(?,?,?,?,?,?,?,?)`,
-      sid, b.commissionRate != null && b.commissionRate !== '' ? Number(b.commissionRate) : null,
+      sid, normalizeRate(b.commissionRate),
       b.commissionNote || null, b.settlementCycle || '익월 15일',
       b.shippingMethod || '위탁배송(공급처 직발송)',
       b.shipDays != null && b.shipDays !== '' ? Number(b.shipDays) : null,
@@ -235,11 +252,16 @@ router.put('/api/admin/suppliers/:id/contract', async (req, res, ctx) => {
   const c = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', sid);
   if (!c) throw new HttpError(404, '계약 조건을 찾을 수 없습니다.');
   const num = (v, fallback) => (v === '' || v == null ? fallback : Number(v));
+
+  const nextRate = b.commissionRate === undefined ? c.commission_rate : normalizeRate(b.commissionRate);
+  logChange({ supplierId: sid, scope: '공급처 기본', oldRate: c.commission_rate, newRate: nextRate,
+    memo: b.commissionMemo || '공급처 기본 수수료율 변경' });
+
   run(
     `UPDATE supplier_contracts SET commission_rate=?, commission_note=?, settlement_cycle=?, shipping_method=?,
             ship_days=?, discount_limit_rate=?, channel_fee_bearer=?, contract_start=?, contract_period=?, note=?,
             updated_at=datetime('now','localtime') WHERE id = ?`,
-    b.commissionRate === '' ? null : num(b.commissionRate, c.commission_rate),
+    nextRate,
     b.commissionNote ?? c.commission_note, b.settlementCycle ?? c.settlement_cycle,
     b.shippingMethod ?? c.shipping_method,
     b.shipDays === '' ? null : num(b.shipDays, c.ship_days),
@@ -260,6 +282,101 @@ router.post('/api/admin/suppliers/:id/password', async (req, res, ctx) => {
   const { hash, salt } = auth.hashPassword(password);
   run('UPDATE suppliers SET password_hash = ?, password_salt = ? WHERE id = ?', hash, salt, s.id);
   sendJson(res, 200, { ok: true });
+});
+
+// ── 수수료 관리 (농가·소상공인과 협의한 요율을 건별로 입력) ──
+
+/**
+ * 수수료율은 두 단계로 관리한다.
+ *   공급처 기본율 — 그 공급처의 모든 상품에 적용되는 기본값
+ *   상품 개별율   — 특정 상품만 다른 요율로 합의한 경우(예: 신선과일 20% / 체험 이용권 15%)
+ */
+router.get('/api/admin/commissions', (req, res) => {
+  auth.requireAdmin(req);
+  const suppliers = all('SELECT * FROM suppliers ORDER BY id').map((sup) => {
+    const contract = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', sup.id);
+    const products = all('SELECT * FROM products WHERE supplier_id = ? ORDER BY category, id', sup.id).map((p) => {
+      const eff = effectiveRate(p);
+      return {
+        id: p.id, name: p.name, category: p.category, spec: p.spec, status: p.status,
+        suggestedPrice: p.suggested_price,
+        ownRate: p.commission_rate,
+        effectiveRate: eff.rate, rateSource: eff.source, rateConfirmed: eff.confirmed,
+        sold: get(`SELECT IFNULL(SUM(oi.subtotal),0) AS amount FROM order_items oi
+                   JOIN orders o ON o.id = oi.order_id
+                   WHERE oi.product_id = ? AND oi.refunded = 0 AND o.status != '반품'`, p.id).amount,
+      };
+    });
+    return {
+      id: sup.id, name: sup.name, ceo: sup.ceo, status: sup.status,
+      baseRate: contract ? contract.commission_rate : null,
+      commissionNote: contract ? contract.commission_note : null,
+      settlementCycle: contract ? contract.settlement_cycle : null,
+      productCount: products.length,
+      overrideCount: products.filter((p) => p.ownRate != null).length,
+      products,
+    };
+  });
+
+  sendJson(res, 200, {
+    suppliers,
+    unconfirmed: suppliers.filter((sup) => sup.baseRate == null)
+      .map((sup) => ({ id: sup.id, name: sup.name, pending: sup.products.filter((p) => !p.rateConfirmed).length })),
+    logs: all(`SELECT cl.*, s.name AS supplier_name, p.name AS product_name
+               FROM commission_logs cl
+               LEFT JOIN suppliers s ON s.id = cl.supplier_id
+               LEFT JOIN products p ON p.id = cl.product_id
+               ORDER BY cl.id DESC LIMIT 50`),
+  });
+});
+
+/** 협의 결과를 한 번에 저장한다. 요율은 % 또는 소수 어느 쪽으로 넣어도 된다. */
+router.put('/api/admin/commissions', async (req, res) => {
+  auth.requireAdmin(req);
+  const b = await readJson(req);
+  const memo = b.memo || null;
+  let changed = 0;
+
+  tx(() => {
+    for (const row of Array.isArray(b.suppliers) ? b.suppliers : []) {
+      const contract = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', Number(row.id));
+      if (!contract) continue;
+      const next = normalizeRate(row.rate);
+      if (next === contract.commission_rate) continue;
+      run("UPDATE supplier_contracts SET commission_rate = ?, updated_at = datetime('now','localtime') WHERE id = ?", next, contract.id);
+      logChange({ supplierId: Number(row.id), scope: '공급처 기본', oldRate: contract.commission_rate, newRate: next, memo: row.memo || memo });
+      changed += 1;
+    }
+
+    for (const row of Array.isArray(b.products) ? b.products : []) {
+      const product = get('SELECT * FROM products WHERE id = ?', Number(row.id));
+      if (!product) continue;
+      const next = normalizeRate(row.rate);
+      if (next === product.commission_rate) continue;
+      run('UPDATE products SET commission_rate = ? WHERE id = ?', next, product.id);
+      logChange({ supplierId: product.supplier_id, productId: product.id, scope: '상품',
+        oldRate: product.commission_rate, newRate: next, memo: row.memo || memo });
+      changed += 1;
+    }
+  });
+
+  sendJson(res, 200, { ok: true, changed });
+});
+
+/** 한 공급처의 상품 개별율을 모두 지우고 기본율로 되돌린다. */
+router.post('/api/admin/commissions/:supplierId/reset', async (req, res, ctx) => {
+  auth.requireAdmin(req);
+  const b = await readJson(req);
+  const sid = Number(ctx.params.supplierId);
+  const targets = all('SELECT * FROM products WHERE supplier_id = ? AND commission_rate IS NOT NULL', sid);
+  tx(() => {
+    for (const p of targets) {
+      run('UPDATE products SET commission_rate = NULL WHERE id = ?', p.id);
+      logChange({ supplierId: sid, productId: p.id, scope: '상품', oldRate: p.commission_rate, newRate: null,
+        memo: b.memo || '공급처 기본율로 되돌림' });
+    }
+  });
+  sendJson(res, 200, { ok: true, cleared: targets.length });
 });
 
 // ── 주문 통합 관리 ──
@@ -353,8 +470,7 @@ router.post('/api/admin/orders', async (req, res) => {
     const qty = Math.max(1, Number(raw.qty) || 1);
     const listing = get('SELECT channel_price FROM channel_listings WHERE product_id = ? AND channel = ?', product.id, channel);
     const unit = Number(raw.unitPrice) || listing?.channel_price || product.suggested_price;
-    const contract = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', product.supplier_id);
-    const rate = contract?.commission_rate ?? 0;
+    const rate = effectiveRate(product).rate;
     const subtotal = unit * qty;
     const commission = Math.round(subtotal * rate);
     lines.push({ product, qty, unit, subtotal, rate, commission, settle: subtotal - commission });
