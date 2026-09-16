@@ -2,28 +2,45 @@
 
 const crypto = require('node:crypto');
 
-const MAX_BODY = 1024 * 1024; // 1MB
+const MAX_BODY = 1024 * 1024;            // 일반 요청 1MB
+const UPLOAD_MAX_BODY = 24 * 1024 * 1024; // 사진이 포함된 요청 24MB
 
-function readBody(req) {
+/**
+ * 본문을 읽는다. 한도를 넘으면 소켓을 끊지 않고 끝까지 흘려보낸 뒤 413으로 답한다.
+ * (끊어버리면 브라우저에는 "연결 실패"만 뜨고 왜 실패했는지 전달되지 않는다)
+ */
+function readBody(req, maxBytes = MAX_BODY) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let tooLarge = false;
+    const hardLimit = maxBytes * 2 + 1024 * 1024; // 악의적인 무한 전송 방어선
+
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) {
-        reject(new HttpError(413, '요청 본문이 너무 큽니다.'));
-        req.destroy();
+      if (size > maxBytes) {
+        if (!tooLarge) { tooLarge = true; chunks.length = 0; }
+        if (size > hardLimit) {
+          req.destroy();
+          reject(new HttpError(413, `요청이 허용 크기(${Math.round(maxBytes / 1024 / 1024)}MB)를 크게 초과했습니다.`));
+        }
         return;
       }
       chunks.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('end', () => {
+      if (tooLarge) {
+        reject(new HttpError(413, `요청 크기가 허용치(${Math.round(maxBytes / 1024 / 1024)}MB)를 넘었습니다. 사진 장수를 줄이거나 크기를 줄여 주세요.`));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
     req.on('error', reject);
   });
 }
 
-async function readJson(req) {
-  const buf = await readBody(req);
+async function readJson(req, maxBytes = MAX_BODY) {
+  const buf = await readBody(req, maxBytes);
   if (!buf.length) return {};
   try {
     return JSON.parse(buf.toString('utf8'));
@@ -143,6 +160,6 @@ function randomToken(bytes = 24) {
 }
 
 module.exports = {
-  readJson, readBody, sendJson, sendText, sendCsv,
+  readJson, readBody, sendJson, sendText, sendCsv, MAX_BODY, UPLOAD_MAX_BODY,
   HttpError, Router, parseCookies, setCookie, clientIp, randomToken,
 };

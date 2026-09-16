@@ -21,7 +21,7 @@ const REFUND_REASONS = ['상품 하자', '오배송', '표시·광고 상이', '
 // ── 인증 ──
 router.post('/api/admin/login', async (req, res) => {
   const b = await readJson(req);
-  auth.adminLogin(res, b.password);
+  auth.adminLogin(res, b.password, req);
   sendJson(res, 200, { ok: true });
 });
 router.post('/api/admin/logout', (req, res) => {

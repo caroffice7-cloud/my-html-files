@@ -147,17 +147,61 @@ function collectProduct() {
   };
 }
 
-function readImages(input) {
-  state.pendingImages = [];
-  $('newThumbs').innerHTML = '';
-  [...input.files].slice(0, 8).forEach((file) => {
+const MAX_IMAGE_SIDE = 1600;   // 긴 변 기준 축소 크기
+const IMAGE_QUALITY = 0.85;
+
+/**
+ * 휴대폰 사진은 3~5MB가 흔해서 그대로 올리면 시골 회선에서 오래 걸리고 저장 공간도 낭비된다.
+ * 브라우저에서 미리 긴 변 1600px 로 줄이고 JPEG 로 다시 인코딩해 보낸다.
+ */
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    reader.onerror = () => reject(new Error('사진을 읽지 못했습니다.'));
     reader.onload = () => {
-      state.pendingImages.push(reader.result);
-      $('newThumbs').insertAdjacentHTML('beforeend', `<figure><img src="${reader.result}" alt=""></figure>`);
+      const img = new Image();
+      img.onerror = () => reject(new Error('사진 형식을 인식하지 못했습니다.'));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(img.width, img.height));
+        if (scale === 1 && reader.result.length < 1.2 * 1024 * 1024) return resolve(reader.result);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height); // 투명 PNG 가 검게 나오지 않도록
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
+      };
+      img.src = reader.result;
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function readImages(input) {
+  state.pendingImages = [];
+  const box = $('newThumbs');
+  box.innerHTML = '';
+  const files = [...input.files].slice(0, 8);
+  if (input.files.length > 8) alert('사진은 한 번에 8장까지 올릴 수 있습니다. 앞의 8장만 사용합니다.');
+  if (!files.length) return;
+
+  box.innerHTML = '<span class="mini">사진 준비 중…</span>';
+  const prepared = [];
+  let savedFrom = 0;
+  for (const file of files) {
+    try {
+      savedFrom += file.size;
+      prepared.push(await shrinkImage(file));
+    } catch (err) {
+      alert(`${file.name}: ${err.message}`);
+    }
+  }
+  state.pendingImages = prepared;
+  const after = prepared.reduce((a, d) => a + d.length * 0.75, 0);
+  box.innerHTML = prepared.map((d) => `<figure><img src="${d}" alt=""></figure>`).join('')
+    + `<div class="mini" style="width:100%">${prepared.length}장 준비됨 · ${(savedFrom / 1024 / 1024).toFixed(1)}MB → ${(after / 1024 / 1024).toFixed(1)}MB 로 줄여서 올립니다</div>`;
 }
 
 function renderNew() {

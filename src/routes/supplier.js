@@ -3,7 +3,7 @@
 /** 공급처(농가·소상공인) 화면 API — 상품 등록과 본인 판매 현황 */
 
 const { get, all, run, tx } = require('../db');
-const { Router, readJson, sendJson, HttpError } = require('../lib/http');
+const { Router, readJson, sendJson, HttpError, UPLOAD_MAX_BODY } = require('../lib/http');
 const auth = require('../lib/auth');
 const { saveDataUrl, removeUpload } = require('../lib/upload');
 const { effectiveRate } = require('../lib/commission');
@@ -25,7 +25,7 @@ function contractOf(supplierId) {
 
 router.post('/api/supplier/login', async (req, res) => {
   const body = await readJson(req);
-  const supplier = auth.supplierLogin(res, body.loginId, body.password);
+  const supplier = auth.supplierLogin(res, body.loginId, body.password, req);
   sendJson(res, 200, { ok: true, supplier: publicSupplier(supplier) });
 });
 
@@ -110,7 +110,7 @@ function readProductBody(b) {
 
 router.post('/api/supplier/products', async (req, res) => {
   const supplier = auth.requireSupplier(req);
-  const b = await readJson(req);
+  const b = await readJson(req, UPLOAD_MAX_BODY);
   const p = readProductBody(b);
   if (!p.name) throw new HttpError(400, '상품명을 입력해 주세요.');
 
@@ -134,7 +134,7 @@ router.put('/api/supplier/products/:id', async (req, res, ctx) => {
   const supplier = auth.requireSupplier(req);
   const product = get('SELECT * FROM products WHERE id = ? AND supplier_id = ?', Number(ctx.params.id), supplier.id);
   if (!product) throw new HttpError(404, '상품을 찾을 수 없습니다.');
-  const b = await readJson(req);
+  const b = await readJson(req, UPLOAD_MAX_BODY);
   const p = readProductBody({ ...product, ...b, supplyPrice: b.supplyPrice ?? product.supply_price,
     suggestedPrice: b.suggestedPrice ?? product.suggested_price, stock: b.stock ?? product.stock,
     shippingFee: b.shippingFee ?? product.shipping_fee, freeShipOver: b.freeShipOver ?? product.free_ship_over,
@@ -197,8 +197,13 @@ router.delete('/api/supplier/products/:id/images/:imageId', (req, res, ctx) => {
   sendJson(res, 200, { ok: true });
 });
 
+const MAX_IMAGES_PER_REQUEST = 8;
+
 function saveImages(productId, images) {
   if (!Array.isArray(images) || !images.length) return;
+  if (images.length > MAX_IMAGES_PER_REQUEST) {
+    throw new HttpError(400, `사진은 한 번에 ${MAX_IMAGES_PER_REQUEST}장까지 올릴 수 있습니다.`);
+  }
   const base = get('SELECT IFNULL(MAX(sort_order), 0) AS n FROM product_images WHERE product_id = ?', productId).n;
   images.forEach((dataUrl, i) => {
     const url = saveDataUrl(dataUrl);
