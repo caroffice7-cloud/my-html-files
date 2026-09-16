@@ -19,6 +19,9 @@
 ADMIN_PASSWORD=원하는비밀번호 npm start
 ```
 
+**서버에 올리기 전에 내 PC에서 먼저 보시려면** → **[docs/내PC에서-먼저-보기.md](docs/내PC에서-먼저-보기.md)**
+(윈도우는 `시작하기-윈도우.bat`, 맥은 `시작하기-맥용.command` 를 더블클릭하면 됩니다)
+
 실제 서버에 올리는 절차(설치·HTTPS·자동 백업·점검표)는 **[docs/DEPLOY.md](docs/DEPLOY.md)** 에 정리해 두었습니다.
 
 | 화면 | 주소 |
