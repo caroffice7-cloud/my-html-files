@@ -53,8 +53,8 @@ const SUPPLIERS = [
       { name: '애플망고', category: '아열대과일', spec: '계약서 별지 미기재', origin: '전남 보성(다향농장)' },
       { name: '파인애플', category: '아열대과일', spec: '계약서 별지 미기재', origin: '전남 보성(다향농장)' },
       { name: '아열대 과일 혼합 선물세트', category: '선물세트', spec: '계약서 별지 미기재', origin: '전남 보성(다향농장)' },
-      { name: '농장체험 이용권 (1인)', category: '체험·프로그램', spec: '유효기간 6개월', origin: '전남 보성(다향농장)' },
-      { name: '치유농업 프로그램 (단체)', category: '체험·프로그램', spec: '사전 예약제', origin: '전남 보성(다향농장)' },
+      { name: '농장체험 이용권 (1인)', category: '체험·프로그램', spec: '유효기간 6개월', origin: '전남 보성(다향농장)', commissionRate: 0.15 },
+      { name: '치유농업 프로그램 (단체)', category: '체험·프로그램', spec: '사전 예약제', origin: '전남 보성(다향농장)', commissionRate: 0.15 },
     ],
   },
   {
@@ -64,7 +64,7 @@ const SUPPLIERS = [
     intro: '주방용 스테인리스 제품과 생활·건축 철물을 취급합니다.',
     contract: {
       commission_rate: null,
-      commission_note: '계약서 제9조 판매수수료율이 공란 — 확정 후 입력 필요.',
+      commission_note: '계약서 제9조 판매수수료율이 공란 — 협의 확정 후 수수료 관리 화면에서 입력.',
       settlement_cycle: '익월 15일', ship_days: 2, discount_limit_rate: null,
       note: '계약서 제6조 할인 허용 한도도 공란. KC 인증 대상 품목은 인증서 사본·표시사항 확보 필요.',
     },
@@ -107,9 +107,10 @@ function seed() {
 
         for (const p of s.products) {
           const pi = run(
-            `INSERT INTO products(supplier_id, name, category, spec, origin, supply_price, suggested_price, stock, status, description)
-             VALUES(?,?,?,?,?,0,0,0,'승인대기',?)`,
-            sid, p.name, p.category, p.spec, p.origin,
+            `INSERT INTO products(supplier_id, name, category, spec, origin, supply_price, suggested_price, stock,
+                                  commission_rate, status, description)
+             VALUES(?,?,?,?,?,0,0,0,?,'승인대기',?)`,
+            sid, p.name, p.category, p.spec, p.origin, p.commissionRate ?? null,
             '계약서 [별지 1] 기준 품목입니다. 공급가·권장판매가·규격이 계약서에 기재되어 있지 않으므로 공급처 화면에서 입력한 뒤 승인 요청해 주세요.'
           );
           const pid = Number(pi.lastInsertRowid);
