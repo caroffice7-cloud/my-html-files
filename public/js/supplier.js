@@ -286,13 +286,16 @@ async function renderSales(from, to) {
     <div class="panel">
       <h3>정산 내역</h3>
       <table><thead><tr><th>정산기간</th><th class="num">판매금액</th><th class="num">수수료</th><th class="num">반품</th>
-        <th class="num">지급액</th><th>지급예정일</th><th>상태</th></tr></thead>
+        <th class="num">부담 비용</th><th class="num">지급액</th><th>지급예정일</th><th>상태</th></tr></thead>
         <tbody>${d.settlements.map((s) => `<tr>
           <td>${esc(s.period_from)} ~ ${esc(s.period_to)}</td>
           <td class="num">${won(s.sales_amount)}</td><td class="num">${won(s.commission_amt)}</td>
-          <td class="num">${won(s.refund_amount)}</td><td class="num"><b>${won(s.payout_amount)}</b></td>
+          <td class="num">${won(s.refund_amount)}</td>
+          <td class="num">${s.supplier_cost ? `<span style="color:var(--red-600)">−${won(s.supplier_cost)}</span>` : '-'}</td>
+          <td class="num"><b>${won(s.payout_amount)}</b></td>
           <td class="mini">${esc(s.pay_due)}</td><td><span class="badge b-${esc(s.status)}">${esc(s.status)}</span></td>
-        </tr>`).join('') || '<tr><td colspan="7" class="muted">아직 확정된 정산 내역이 없습니다.</td></tr>'}</tbody></table>
+        </tr>`).join('') || '<tr><td colspan="8" class="muted">아직 확정된 정산 내역이 없습니다.</td></tr>'}</tbody></table>
+      <p class="mini">부담 비용은 상품 하자·오배송 등 공급처 귀책으로 발생한 반품 처리 비용이며, 계약서 제8조에 따라 지급액에서 공제됩니다.</p>
     </div>
     <div class="panel">
       <h3>판매 상세</h3>

@@ -13,6 +13,8 @@ const { monthStart, monthEnd } = require('./supplier');
 const router = new Router();
 const ORDER_STATUSES = ['주문접수', '공급처전달', '출고', '배송중', '완료', '반품'];
 const PRODUCT_STATUSES = ['승인대기', '판매중', '반려', '품절', '판매중지'];
+const REFUND_BEARERS = ['공급처', '소비자', '히스메이커스'];
+const REFUND_REASONS = ['상품 하자', '오배송', '표시·광고 상이', '단순 변심', '상품정보 오기재', '주문 전달 누락'];
 
 // ── 인증 ──
 router.post('/api/admin/login', async (req, res) => {
@@ -25,7 +27,7 @@ router.post('/api/admin/logout', (req, res) => {
   sendJson(res, 200, { ok: true });
 });
 router.get('/api/admin/me', (req, res) => {
-  sendJson(res, 200, { authenticated: !!auth.currentAdmin(req), channels: CHANNELS, orderStatuses: ORDER_STATUSES });
+  sendJson(res, 200, { authenticated: !!auth.currentAdmin(req), channels: CHANNELS, orderStatuses: ORDER_STATUSES, refundBearers: REFUND_BEARERS, refundReasons: REFUND_REASONS });
 });
 
 // ── 대시보드 ──
@@ -307,10 +309,19 @@ router.patch('/api/admin/orders/:id/status', async (req, res, ctx) => {
     run('INSERT INTO order_logs(order_id, from_status, to_status, memo) VALUES(?,?,?,?)',
       order.id, order.status, b.status, b.memo || null);
     if (b.status === '반품') {
+      // 계약서 제7조: 상품 하자·오배송은 공급처, 단순 변심은 소비자,
+      // 상품정보 오기재·주문 전달 누락은 수탁자(히스메이커스)가 비용을 부담한다.
+      const bearer = REFUND_BEARERS.includes(b.refundBearer) ? b.refundBearer : '소비자';
+      run('UPDATE orders SET refund_reason = ?, refund_bearer = ?, refund_cost = ? WHERE id = ?',
+        b.refundReason || null, bearer, Math.max(0, Number(b.refundCost || 0)), order.id);
       run('UPDATE order_items SET refunded = 1 WHERE order_id = ?', order.id);
       for (const it of all('SELECT product_id, qty FROM order_items WHERE order_id = ?', order.id)) {
         if (it.product_id) run('UPDATE products SET stock = stock + ? WHERE id = ?', it.qty, it.product_id);
       }
+    }
+    if (order.status === '반품' && b.status !== '반품') {
+      run("UPDATE orders SET refund_reason = NULL, refund_bearer = NULL, refund_cost = 0 WHERE id = ?", order.id);
+      run('UPDATE order_items SET refunded = 0 WHERE order_id = ?', order.id);
     }
   });
   sendJson(res, 200, { ok: true, status: b.status });
@@ -385,7 +396,8 @@ router.post('/api/admin/orders', async (req, res) => {
 // ── 정산 ──
 function settlementRows(from, to, supplierId) {
   const params = [from, to];
-  let sql = `SELECT oi.*, o.order_no, o.created_at, o.channel, o.status AS order_status, s.name AS supplier_name
+  let sql = `SELECT oi.*, o.order_no, o.created_at, o.channel, o.status AS order_status,
+                    o.refund_reason, o.refund_bearer, o.refund_cost, s.name AS supplier_name
              FROM order_items oi
              JOIN orders o ON o.id = oi.order_id
              JOIN suppliers s ON s.id = oi.supplier_id
@@ -402,14 +414,20 @@ router.get('/api/admin/settlement', (req, res, ctx) => {
   const rows = settlementRows(from, to, ctx.query.get('supplierId'));
 
   const bySupplier = new Map();
+  const countedRefundOrders = new Set();
   for (const r of rows) {
     const agg = bySupplier.get(r.supplier_id) || {
-      supplierId: r.supplier_id, supplier: r.supplier_name, sales: 0, commission: 0, refund: 0, payout: 0,
-      orders: new Set(), settled: 0, unsettled: 0,
+      supplierId: r.supplier_id, supplier: r.supplier_name, sales: 0, commission: 0, refund: 0,
+      supplierCost: 0, payout: 0, orders: new Set(), settled: 0, unsettled: 0,
     };
     const isRefund = r.refunded || r.order_status === '반품';
     if (isRefund) {
       agg.refund += r.subtotal;
+      // 공급처 부담으로 처리된 반품비용은 주문 단위이므로 한 번만 더한다
+      if (r.refund_bearer === '공급처' && r.refund_cost > 0 && !countedRefundOrders.has(r.order_no)) {
+        agg.supplierCost += r.refund_cost;
+        countedRefundOrders.add(r.order_no);
+      }
     } else {
       agg.sales += r.subtotal;
       agg.commission += r.commission_amt;
@@ -422,7 +440,9 @@ router.get('/api/admin/settlement', (req, res, ctx) => {
 
   sendJson(res, 200, {
     from, to, rows,
-    bySupplier: [...bySupplier.values()].map((a) => ({ ...a, orders: a.orders.size })),
+    bySupplier: [...bySupplier.values()].map((a) => ({
+      ...a, orders: a.orders.size, netPayout: a.payout - a.supplierCost, unsettled: a.unsettled - a.supplierCost,
+    })),
     settlements: all('SELECT s.*, sup.name AS supplier_name FROM settlements s JOIN suppliers sup ON sup.id = s.supplier_id ORDER BY s.id DESC LIMIT 50'),
   });
 });
@@ -441,8 +461,17 @@ router.post('/api/admin/settlement', async (req, res) => {
   const valid = rows.filter((r) => !r.refunded && r.order_status !== '반품');
   const sales = valid.reduce((a, r) => a + r.subtotal, 0);
   const commission = valid.reduce((a, r) => a + r.commission_amt, 0);
-  const refund = rows.filter((r) => r.refunded || r.order_status === '반품').reduce((a, r) => a + r.subtotal, 0);
-  const payout = valid.reduce((a, r) => a + r.settle_amt, 0);
+  const refundRows = rows.filter((r) => r.refunded || r.order_status === '반품');
+  const refund = refundRows.reduce((a, r) => a + r.subtotal, 0);
+
+  // 계약서 제8조: 판매수수료, 반품·환불액 및 "갑" 부담 비용을 공제한 금액을 지급한다.
+  const countedOrders = new Set();
+  const supplierCost = refundRows.reduce((a, r) => {
+    if (r.refund_bearer !== '공급처' || !r.refund_cost || countedOrders.has(r.order_no)) return a;
+    countedOrders.add(r.order_no);
+    return a + r.refund_cost;
+  }, 0);
+  const payout = Math.max(0, valid.reduce((a, r) => a + r.settle_amt, 0) - supplierCost);
 
   const contract = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', Number(b.supplierId));
   const due = new Date(new Date(to).getFullYear(), new Date(to).getMonth() + 1, 15);
@@ -451,9 +480,9 @@ router.post('/api/admin/settlement', async (req, res) => {
   const id = tx(() => {
     const ins = run(
       `INSERT INTO settlements(supplier_id, period_from, period_to, sales_amount, commission_amt, refund_amount,
-                               payout_amount, status, pay_due, note)
-       VALUES(?,?,?,?,?,?,?,'정산예정',?,?)`,
-      Number(b.supplierId), from, to, sales, commission, refund, payout, payDue,
+                               supplier_cost, payout_amount, status, pay_due, note)
+       VALUES(?,?,?,?,?,?,?,?,'정산예정',?,?)`,
+      Number(b.supplierId), from, to, sales, commission, refund, supplierCost, payout, payDue,
       contract ? `수수료 기준: ${contract.commission_note || (contract.commission_rate != null ? Math.round(contract.commission_rate * 100) + '%' : '미확정')}` : null
     );
     const sid = Number(ins.lastInsertRowid);
@@ -461,7 +490,7 @@ router.post('/api/admin/settlement', async (req, res) => {
     return sid;
   });
 
-  sendJson(res, 201, { ok: true, id, sales, commission, refund, payout, payDue });
+  sendJson(res, 201, { ok: true, id, sales, commission, refund, supplierCost, payout, payDue });
 });
 
 router.patch('/api/admin/settlements/:id', async (req, res, ctx) => {
@@ -495,7 +524,8 @@ router.get('/api/admin/settlements/:id/statement.csv', (req, res, ctx) => {
       (r.refunded || r.order_status === '반품') ? '반품' : '',
     ]).concat([[
       '합계', supplier.name, '', '', '', '', '', '', '', s.sales_amount, '', s.commission_amt, s.payout_amount,
-      s.refund_amount ? `반품 ${s.refund_amount}` : '',
+      [s.refund_amount ? `반품 ${s.refund_amount}원` : '', s.supplier_cost ? `공급처 부담 비용 ${s.supplier_cost}원 공제` : '']
+        .filter(Boolean).join(' / '),
     ]])
   );
   sendCsv(res, `정산서_${supplier.name}_${s.period_from}_${s.period_to}.csv`, csv);

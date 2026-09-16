@@ -7,7 +7,7 @@ const pct = (r) => (r == null ? '미확정' : `${Math.round(r * 100)}%`);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { channels: [], orderStatuses: [], suppliers: [], products: [], manualOrder: [] };
+const state = { channels: [], orderStatuses: [], refundBearers: [], refundReasons: [], suppliers: [], products: [], manualOrder: [] };
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -36,6 +36,8 @@ async function boot() {
   const me = await api('/api/admin/me');
   state.channels = me.channels;
   state.orderStatuses = me.orderStatuses;
+  state.refundBearers = me.refundBearers || ['공급처', '소비자', '히스메이커스'];
+  state.refundReasons = me.refundReasons || [];
   document.querySelectorAll('.admin-nav button').forEach((b) => { b.onclick = () => switchView(b.dataset.view); });
   switchView('dashboard');
 }
@@ -302,8 +304,56 @@ function applyOrderFilter() {
 }
 
 async function setOrderStatus(id, status) {
+  if (status === '반품') return openRefundDialog(id);
   try { await api(`/api/admin/orders/${id}/status`, { method: 'PATCH', body: { status } }); renderOrders(); }
   catch (err) { alert(err.message); renderOrders(); }
+}
+
+/** 반품 처리 — 계약서 제7조의 비용 부담 주체를 함께 기록한다. */
+function openRefundDialog(id) {
+  $('dlgTitle').textContent = '반품 처리';
+  $('dlgBody').innerHTML = `
+    <p class="mini">계약서 제7조에 따라 반품 사유와 비용 부담 주체를 기록합니다.
+      공급처 부담으로 기록한 비용은 해당 공급처의 정산 지급액에서 공제됩니다.</p>
+    <div class="row-form">
+      <div><label class="mini">반품 사유</label>
+        <select id="rfReason" onchange="suggestBearer()">
+          ${state.refundReasons.map((r) => `<option>${esc(r)}</option>`).join('')}
+        </select></div>
+      <div><label class="mini">비용 부담 주체</label>
+        <select id="rfBearer">${state.refundBearers.map((b) => `<option>${esc(b)}</option>`).join('')}</select></div>
+      <div><label class="mini">반품 처리 비용 (원)</label><input id="rfCost" type="number" value="0"></div>
+    </div>
+    <p class="mini" style="margin-top:8px">
+      상품 하자·오배송·표시 상이 → <b>공급처</b> 부담 · 단순 변심 → <b>소비자</b> 부담 ·
+      상품정보 오기재·주문 전달 누락 → <b>히스메이커스</b> 부담
+    </p>
+    <div id="rfMsg"></div>`;
+  $('dlgFoot').innerHTML = `
+    <button class="btn btn-sm btn-ghost" onclick="dlg.close(); renderOrders();">취소</button>
+    <button class="btn btn-sm btn-danger" onclick="submitRefund(${id})">반품 처리</button>`;
+  dlg.showModal();
+  suggestBearer();
+}
+
+function suggestBearer() {
+  const map = {
+    '상품 하자': '공급처', '오배송': '공급처', '표시·광고 상이': '공급처',
+    '단순 변심': '소비자', '상품정보 오기재': '히스메이커스', '주문 전달 누락': '히스메이커스',
+  };
+  const bearer = map[$('rfReason').value];
+  if (bearer) $('rfBearer').value = bearer;
+}
+
+async function submitRefund(id) {
+  try {
+    await api(`/api/admin/orders/${id}/status`, { method: 'PATCH', body: {
+      status: '반품', refundReason: $('rfReason').value,
+      refundBearer: $('rfBearer').value, refundCost: Number($('rfCost').value || 0),
+    } });
+    dlg.close();
+    renderOrders();
+  } catch (err) { $('rfMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
 }
 async function setPaid(id, paid) {
   await api(`/api/admin/orders/${id}/paid`, { method: 'PATCH', body: { paid } });
@@ -319,6 +369,8 @@ async function openOrder(id) {
       <tr><th>요청사항</th><td>${esc(d.order.memo) || '-'}</td></tr>
       <tr><th>결제</th><td>${esc(d.order.pay_method)} · ${d.order.paid ? '입금확인' : '입금대기'} · ${won(d.order.total_amount)}
         <span class="mini">(상품 ${won(d.order.goods_amount)} + 배송비 ${won(d.order.shipping_fee)})</span></td></tr>
+      ${d.order.status === '반품' ? `<tr><th>반품</th><td>${esc(d.order.refund_reason) || '-'} ·
+        비용 부담 <b>${esc(d.order.refund_bearer) || '-'}</b>${d.order.refund_cost ? ` · ${won(d.order.refund_cost)}` : ''}</td></tr>` : ''}
     </tbody></table>
     <h4 style="margin-top:16px">주문 상품 · 공급처 전달 정보</h4>
     <table><thead><tr><th>상품</th><th>공급처</th><th class="num">수량</th><th class="num">판매금액</th>
@@ -525,32 +577,36 @@ async function renderSettlement(from, to) {
     <div class="panel">
       <h3>공급처별 정산 집계 (${d.from} ~ ${d.to})</h3>
       <table><thead><tr><th>공급처</th><th class="num">주문</th><th class="num">판매금액</th><th class="num">수수료</th>
-        <th class="num">반품</th><th class="num">지급대상</th><th class="num">미정산</th><th></th></tr></thead>
+        <th class="num">반품</th><th class="num">공급처 부담</th><th class="num">지급대상</th><th class="num">미정산</th><th></th></tr></thead>
         <tbody>${d.bySupplier.map((s) => `<tr>
           <td><b>${esc(s.supplier)}</b></td><td class="num">${s.orders}</td>
           <td class="num">${won(s.sales)}</td><td class="num">${won(s.commission)}</td>
-          <td class="num">${won(s.refund)}</td><td class="num"><b>${won(s.payout)}</b></td>
-          <td class="num">${won(s.unsettled)}</td>
+          <td class="num">${won(s.refund)}</td>
+          <td class="num">${s.supplierCost ? `<span style="color:var(--red-600)">−${won(s.supplierCost)}</span>` : '-'}</td>
+          <td class="num"><b>${won(s.netPayout)}</b></td>
+          <td class="num">${won(Math.max(0, s.unsettled))}</td>
           <td>${s.unsettled > 0
             ? `<button class="btn btn-sm btn-primary" onclick="closeSettlement(${s.supplierId},'${d.from}','${d.to}')">정산서 생성</button>`
             : '<span class="mini muted">마감됨</span>'}</td>
-        </tr>`).join('') || '<tr><td colspan="8" class="muted">해당 기간 판매 내역이 없습니다.</td></tr>'}</tbody></table>
+        </tr>`).join('') || '<tr><td colspan="9" class="muted">해당 기간 판매 내역이 없습니다.</td></tr>'}</tbody></table>
       <p class="mini" style="margin-top:10px">정산서를 생성하면 해당 기간의 미정산 판매 건이 묶여 마감되고, 공급처 화면에도 표시됩니다.</p>
     </div>
     <div class="panel">
       <h3>생성된 정산서</h3>
       <table><thead><tr><th>공급처</th><th>정산기간</th><th class="num">판매금액</th><th class="num">수수료</th>
-        <th class="num">반품</th><th class="num">지급액</th><th>지급예정</th><th>상태</th><th></th></tr></thead>
+        <th class="num">반품</th><th class="num">공급처 부담</th><th class="num">지급액</th><th>지급예정</th><th>상태</th><th></th></tr></thead>
         <tbody>${d.settlements.map((s) => `<tr>
           <td>${esc(s.supplier_name)}</td><td class="mini">${esc(s.period_from)} ~ ${esc(s.period_to)}</td>
           <td class="num">${won(s.sales_amount)}</td><td class="num">${won(s.commission_amt)}</td>
-          <td class="num">${won(s.refund_amount)}</td><td class="num"><b>${won(s.payout_amount)}</b></td>
+          <td class="num">${won(s.refund_amount)}</td>
+          <td class="num">${s.supplier_cost ? `<span style="color:var(--red-600)">−${won(s.supplier_cost)}</span>` : '-'}</td>
+          <td class="num"><b>${won(s.payout_amount)}</b></td>
           <td class="mini">${esc(s.pay_due)}</td>
           <td><span class="badge b-${esc(s.status)}">${esc(s.status)}</span></td>
           <td>
             <a class="btn btn-sm btn-outline" href="/api/admin/settlements/${s.id}/statement.csv">정산서</a>
             ${s.status !== '지급완료' ? `<button class="btn btn-sm btn-primary" onclick="markPaid(${s.id})">지급완료</button>` : ''}
-          </td></tr>`).join('') || '<tr><td colspan="9" class="muted">생성된 정산서가 없습니다.</td></tr>'}</tbody></table>
+          </td></tr>`).join('') || '<tr><td colspan="10" class="muted">생성된 정산서가 없습니다.</td></tr>'}</tbody></table>
     </div>`;
 }
 
@@ -558,7 +614,9 @@ async function closeSettlement(supplierId, from, to) {
   if (!confirm(`${from} ~ ${to} 기간의 미정산 건을 마감하고 정산서를 생성할까요?`)) return;
   try {
     const d = await api('/api/admin/settlement', { method: 'POST', body: { supplierId, from, to } });
-    alert(`정산서를 생성했습니다.\n판매 ${won(d.sales)} / 수수료 ${won(d.commission)} / 지급액 ${won(d.payout)}\n지급 예정일 ${d.payDue}`);
+    alert(`정산서를 생성했습니다.\n판매 ${won(d.sales)} / 수수료 ${won(d.commission)}`
+      + (d.supplierCost ? ` / 공급처 부담 비용 ${won(d.supplierCost)} 공제` : '')
+      + `\n지급액 ${won(d.payout)} · 지급 예정일 ${d.payDue}`);
     renderSettlement(from, to);
   } catch (err) { alert(err.message); }
 }

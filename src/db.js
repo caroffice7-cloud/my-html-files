@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS orders (
   payer_name     TEXT,
   paid           INTEGER NOT NULL DEFAULT 0,
   external_no    TEXT,
+  refund_reason  TEXT,
+  refund_bearer  TEXT,
+  refund_cost    INTEGER NOT NULL DEFAULT 0,
   created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
@@ -148,6 +151,7 @@ CREATE TABLE IF NOT EXISTS settlements (
   sales_amount   INTEGER NOT NULL DEFAULT 0,
   commission_amt INTEGER NOT NULL DEFAULT 0,
   refund_amount  INTEGER NOT NULL DEFAULT 0,
+  supplier_cost  INTEGER NOT NULL DEFAULT 0,
   payout_amount  INTEGER NOT NULL DEFAULT 0,
   status         TEXT NOT NULL DEFAULT '정산예정',
   pay_due        TEXT,
@@ -172,6 +176,19 @@ CREATE TABLE IF NOT EXISTS settings (
 `;
 
 db.exec(SCHEMA);
+
+/** 이미 만들어진 데이터베이스에 컬럼을 더한다(있으면 건너뜀). */
+function ensureColumn(table, column, definition) {
+  const exists = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+// 반품·환불 비용 부담 주체(계약서 제7조) 기록
+ensureColumn('orders', 'refund_reason', 'TEXT');
+ensureColumn('orders', 'refund_bearer', 'TEXT');
+ensureColumn('orders', 'refund_cost', 'INTEGER NOT NULL DEFAULT 0');
+// 공급처 부담 반품비용 공제액(계약서 제8조 정산)
+ensureColumn('settlements', 'supplier_cost', 'INTEGER NOT NULL DEFAULT 0');
 
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const all = (sql, ...p) => db.prepare(sql).all(...p);
