@@ -8,7 +8,7 @@ const asPct = (r) => (r == null ? '' : String(Math.round(r * 10000) / 100));
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { channels: [], orderStatuses: [], refundBearers: [], refundReasons: [], suppliers: [], products: [], manualOrder: [] };
+const state = { channels: [], orderStatuses: [], refundBearers: [], refundReasons: [], suppliers: [], products: [], manualOrder: [], me: null };
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -27,14 +27,130 @@ function showApp() { $('loginView').classList.add('hidden'); $('appView').classL
 
 async function doLogin() {
   try {
-    await api('/api/admin/login', { method: 'POST', body: { password: $('pw').value } });
+    await api('/api/admin/login', { method: 'POST', body: { loginId: $('loginId').value.trim(), password: $('pw').value } });
     showApp(); await boot();
   } catch (err) { $('loginMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+}
+
+function applyRole() {
+  const me = state.me;
+  $('whoami').textContent = me ? `${me.name} · ${me.role}` : '';
+  const isOwner = me && me.role === '총괄';
+  document.querySelectorAll('.admin-nav button[data-owner]').forEach((b) => b.classList.toggle('hidden', !isOwner));
+  if (me && me.mustChange) {
+    setTimeout(() => { alert('첫 로그인입니다. 비밀번호를 바꿔 주세요.'); openPasswordDialog(); }, 300);
+  }
+}
+
+function openPasswordDialog() {
+  $('dlgTitle').textContent = '비밀번호 변경';
+  $('dlgBody').innerHTML = `
+    <div class="row-form">
+      <div><label class="mini">현재 비밀번호</label><input id="mpwCur" type="password"></div>
+      <div><label class="mini">새 비밀번호 (8자 이상)</label><input id="mpwNew" type="password"></div>
+    </div><div id="mpwMsg"></div>`;
+  $('dlgFoot').innerHTML = `<button class="btn btn-sm btn-ghost" onclick="dlg.close()">닫기</button>
+    <button class="btn btn-sm btn-primary" onclick="changeMyPassword()">변경</button>`;
+  dlg.showModal();
+}
+
+async function changeMyPassword() {
+  try {
+    await api('/api/admin/password', { method: 'POST', body: { current: $('mpwCur').value, next: $('mpwNew').value } });
+    state.me.mustChange = false; dlg.close(); alert('비밀번호를 바꿨습니다.');
+  } catch (err) { $('mpwMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+}
+
+/* ── 운영자 계정 (총괄만) ── */
+async function renderAccounts() {
+  const d = await api('/api/admin/accounts');
+  $('view-accounts').innerHTML = `
+    <div class="panel">
+      <h3>운영자 계정</h3>
+      <p class="mini">
+        <b>총괄</b> — 모든 기능 + 공급처·계약·수수료·정산 지급·설정·계정 관리 ·
+        <b>담당자</b> — 상품 승인, 주문 관리, 채널 연동, 정산 조회<br>
+        계정을 나누면 상품 승인·주문 처리·정산이 누가 했는지 기록에 남습니다.
+      </p>
+      <div class="row-form" style="margin-top:12px">
+        <input id="acLoginId" placeholder="아이디 (영문소문자·숫자)">
+        <input id="acName" placeholder="담당자 이름">
+        <input id="acPhone" placeholder="연락처">
+        <select id="acRole">${d.roles.map((r) => `<option ${r === '담당자' ? 'selected' : ''}>${r}</option>`).join('')}</select>
+        <input id="acPw" placeholder="초기 비밀번호 (8자 이상)">
+        <button class="btn btn-sm btn-primary" onclick="createAccount()">계정 추가</button>
+      </div>
+      <div id="acMsg"></div>
+    </div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>연락처</th><th>마지막 로그인</th><th>상태</th><th></th></tr></thead>
+      <tbody>${d.accounts.map((a) => `<tr data-id="${a.id}">
+        <td><b>${esc(a.login_id)}</b></td>
+        <td><input class="inline-edit" value="${esc(a.name)}" data-f="name"></td>
+        <td><select class="inline-edit" data-f="role">${d.roles.map((r) => `<option ${a.role === r ? 'selected' : ''}>${r}</option>`).join('')}</select></td>
+        <td><input class="inline-edit" value="${esc(a.phone)}" data-f="phone"></td>
+        <td class="mini">${esc(a.last_login_at) || '없음'}${a.must_change ? '<br><span style="color:var(--amber-600)">비밀번호 변경 필요</span>' : ''}</td>
+        <td>${a.active ? '사용중' : '<span class="muted">중지</span>'}</td>
+        <td>
+          <button class="btn btn-sm btn-primary" onclick="saveAccount(${a.id})">저장</button>
+          <button class="btn btn-sm btn-ghost" onclick="resetAccountPw(${a.id}, '${esc(a.login_id)}')">비밀번호 재발급</button>
+          <button class="btn btn-sm ${a.active ? 'btn-danger' : 'btn-outline'}" onclick="toggleAccount(${a.id}, ${a.active ? 0 : 1})">${a.active ? '사용 중지' : '사용 재개'}</button>
+        </td></tr>`).join('')}</tbody>
+    </table></div>
+    <div class="panel">
+      <h3>변경 기록</h3>
+      <div class="table-scroll"><table>
+        <thead><tr><th>일시</th><th>담당자</th><th>작업</th><th>대상</th><th>내용</th><th>접속 IP</th></tr></thead>
+        <tbody>${d.logs.map((l) => `<tr><td class="mini">${esc(l.created_at)}</td><td>${esc(l.actor_name) || '-'}</td>
+          <td>${esc(l.action)}</td><td class="mini">${esc(l.target) || '-'}</td>
+          <td class="mini">${esc(l.detail) || ''}</td><td class="mini">${esc(l.ip) || ''}</td></tr>`).join('')
+          || '<tr><td colspan="6" class="muted">기록이 없습니다.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function accountRow(id) {
+  const tr = document.querySelector(`tr[data-id="${id}"]`);
+  const out = {};
+  tr.querySelectorAll('[data-f]').forEach((el) => { out[el.dataset.f] = el.value; });
+  return out;
+}
+
+async function createAccount() {
+  try {
+    await api('/api/admin/accounts', { method: 'POST', body: {
+      loginId: $('acLoginId').value.trim(), name: $('acName').value.trim(),
+      phone: $('acPhone').value.trim(), role: $('acRole').value, password: $('acPw').value.trim() } });
+    alert(`계정을 만들었습니다.\n아이디: ${$('acLoginId').value.trim()}\n초기 비밀번호를 담당자에게 안전하게 전달하세요.`);
+    renderAccounts();
+  } catch (err) { $('acMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+}
+
+async function saveAccount(id) {
+  try { await api(`/api/admin/accounts/${id}`, { method: 'PUT', body: accountRow(id) }); renderAccounts(); }
+  catch (err) { alert(err.message); }
+}
+
+async function toggleAccount(id, active) {
+  if (!active && !confirm('이 계정의 사용을 중지하면 즉시 로그아웃됩니다. 계속할까요?')) return;
+  try { await api(`/api/admin/accounts/${id}`, { method: 'PUT', body: { active: !!active } }); renderAccounts(); }
+  catch (err) { alert(err.message); }
+}
+
+async function resetAccountPw(id, loginId) {
+  const pw = prompt(`${loginId} 계정의 새 비밀번호를 입력하세요 (8자 이상)`);
+  if (!pw) return;
+  try {
+    await api(`/api/admin/accounts/${id}`, { method: 'PUT', body: { password: pw } });
+    alert('비밀번호를 재발급했습니다.'); renderAccounts();
+  } catch (err) { alert(err.message); }
 }
 async function doLogout() { await api('/api/admin/logout', { method: 'POST' }); location.reload(); }
 
 async function boot() {
   const me = await api('/api/admin/me');
+  state.me = me.user || null;
+  applyRole();
   state.channels = me.channels;
   state.orderStatuses = me.orderStatuses;
   state.refundBearers = me.refundBearers || ['공급처', '소비자', '히스메이커스'];
@@ -49,7 +165,7 @@ function switchView(v) {
   document.querySelectorAll('.admin-wrap > section').forEach((s) => s.classList.toggle('hidden', s.id !== `view-${v}`));
   ({ dashboard: renderDashboard, products: renderProducts, channels: renderChannels, orders: renderOrders,
      suppliers: renderSuppliers, commissions: renderCommissions, settlement: renderSettlement,
-     settings: renderSettings }[v])();
+     settings: renderSettings, accounts: renderAccounts }[v])();
 }
 
 /* ── 대시보드 ── */

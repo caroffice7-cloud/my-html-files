@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS order_logs (
   from_status TEXT,
   to_status   TEXT,
   memo        TEXT,
+  actor       TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
@@ -192,6 +193,37 @@ ensureColumn('orders', 'refund_cost', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('settlements', 'supplier_cost', 'INTEGER NOT NULL DEFAULT 0');
 // 상품별 개별 수수료율 — 비우면 공급처 계약 기본율을 따른다
 ensureColumn('products', 'commission_rate', 'REAL');
+// 처리 이력에 담당자를 남긴다
+ensureColumn('order_logs', 'actor', 'TEXT');
+
+// 운영자 계정 · 감사 기록
+db.exec(`
+CREATE TABLE IF NOT EXISTS admin_users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  login_id      TEXT NOT NULL UNIQUE,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT '담당자',
+  phone         TEXT,
+  password_hash TEXT NOT NULL,
+  password_salt TEXT NOT NULL,
+  active        INTEGER NOT NULL DEFAULT 1,
+  must_change   INTEGER NOT NULL DEFAULT 0,
+  last_login_at TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id    INTEGER,
+  actor_name  TEXT,
+  action      TEXT NOT NULL,
+  target      TEXT,
+  detail      TEXT,
+  ip          TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+`);
 
 // 수수료율 협의 이력 (누가 언제 몇 %로 정했는지 남긴다)
 db.exec(`

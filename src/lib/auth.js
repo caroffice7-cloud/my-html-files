@@ -7,8 +7,8 @@
  */
 
 const crypto = require('node:crypto');
-const { get } = require('../db');
-const { HttpError, parseCookies, setCookie, randomToken } = require('./http');
+const { get, run } = require('../db');
+const { HttpError, parseCookies, setCookie, randomToken, clientIp } = require('./http');
 
 const ADMIN_COOKIE = 'mall_admin';
 const SUPPLIER_COOKIE = 'mall_supplier';
@@ -17,8 +17,35 @@ const TTL_MS = 1000 * 60 * 60 * 8;
 const adminSessions = new Map();
 const supplierSessions = new Map();
 
+const ROLES = ['총괄', '담당자'];
+
 function adminPassword() {
   return process.env.ADMIN_PASSWORD || 'bmctvda2026';
+}
+
+/**
+ * 최초 실행 시 총괄 계정 'admin' 을 만든다.
+ * 비밀번호를 모두 잊었다면 ADMIN_RESET=1 로 한 번 켜면 초기화된다.
+ */
+function bootstrap() {
+  const { get, run } = require('../db');
+  const existing = get("SELECT * FROM admin_users WHERE login_id = 'admin'");
+  if (!existing) {
+    const { hash, salt } = hashPassword(adminPassword());
+    run(`INSERT INTO admin_users(login_id, name, role, password_hash, password_salt, must_change)
+         VALUES('admin', '기본 관리자', '총괄', ?, ?, 1)`, hash, salt);
+    console.log("  · 운영자 계정 'admin'(총괄)을 만들었습니다. 첫 로그인 후 비밀번호를 바꿔 주세요.");
+    return;
+  }
+  if (process.env.ADMIN_RESET === '1') {
+    const { hash, salt } = hashPassword(adminPassword());
+    run("UPDATE admin_users SET password_hash = ?, password_salt = ?, active = 1, must_change = 1 WHERE login_id = 'admin'", hash, salt);
+    console.log("  · ADMIN_RESET=1 → 'admin' 계정 비밀번호를 초기화했습니다.");
+  }
+}
+
+function publicUser(u) {
+  return { id: u.id, loginId: u.login_id, name: u.name, role: u.role, phone: u.phone, mustChange: !!u.must_change };
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -83,16 +110,19 @@ function prune(map) {
 }
 
 // ── 관리자 ──
-function adminLogin(res, password, req) {
+function adminLogin(res, loginId, password, req) {
   if (req) checkThrottle(req, 'admin');
-  if (!safeEqual(password || '', adminPassword())) {
+  const user = get('SELECT * FROM admin_users WHERE login_id = ? AND active = 1', String(loginId || '').trim());
+  if (!user || !verifyPassword(password, user.password_hash, user.password_salt)) {
     if (req) recordFailure(req, 'admin');
-    throw new HttpError(401, '비밀번호가 일치하지 않습니다.');
+    throw new HttpError(401, '아이디 또는 비밀번호가 올바르지 않습니다.');
   }
   if (req) clearThrottle(req, 'admin');
   const token = randomToken();
-  adminSessions.set(token, { createdAt: Date.now() });
+  adminSessions.set(token, { userId: user.id, createdAt: Date.now() });
   setCookie(res, ADMIN_COOKIE, token, { maxAge: Math.floor(TTL_MS / 1000), secure: process.env.SECURE_COOKIE === '1' });
+  run("UPDATE admin_users SET last_login_at = datetime('now','localtime') WHERE id = ?", user.id);
+  return publicUser(user);
 }
 
 function adminLogout(req, res) {
@@ -104,11 +134,35 @@ function adminLogout(req, res) {
 function currentAdmin(req) {
   prune(adminSessions);
   const token = parseCookies(req)[ADMIN_COOKIE];
-  return token ? adminSessions.get(token) || null : null;
+  const sess = token ? adminSessions.get(token) : null;
+  if (!sess) return null;
+  const user = get('SELECT * FROM admin_users WHERE id = ? AND active = 1', sess.userId);
+  if (!user) { adminSessions.delete(token); return null; }
+  return user;
 }
 
 function requireAdmin(req) {
-  if (!currentAdmin(req)) throw new HttpError(401, '관리자 로그인이 필요합니다.');
+  const user = currentAdmin(req);
+  if (!user) throw new HttpError(401, '관리자 로그인이 필요합니다.');
+  return user;
+}
+
+/** 총괄만 할 수 있는 작업 (공급처·계약·수수료·정산 지급·설정·계정) */
+function requireOwner(req) {
+  const user = requireAdmin(req);
+  if (user.role !== '총괄') {
+    throw new HttpError(403, '총괄 관리자만 할 수 있는 작업입니다. 담당자 권한으로는 변경할 수 없습니다.');
+  }
+  return user;
+}
+
+function revokeAdminSessions(userId) {
+  for (const [token, sess] of adminSessions) if (sess.userId === userId) adminSessions.delete(token);
+}
+
+function audit(req, user, action, target, detail) {
+  run('INSERT INTO audit_logs(actor_id, actor_name, action, target, detail, ip) VALUES(?,?,?,?,?,?)',
+    user ? user.id : null, user ? user.name : null, action, target || null, detail || null, clientIp(req));
 }
 
 // ── 공급처 ──
@@ -148,7 +202,7 @@ function requireSupplier(req) {
 }
 
 module.exports = {
-  hashPassword, verifyPassword,
-  adminLogin, adminLogout, currentAdmin, requireAdmin,
+  ROLES, bootstrap, publicUser, hashPassword, verifyPassword, audit, revokeAdminSessions,
+  adminLogin, adminLogout, currentAdmin, requireAdmin, requireOwner,
   supplierLogin, supplierLogout, currentSupplier, requireSupplier,
 };

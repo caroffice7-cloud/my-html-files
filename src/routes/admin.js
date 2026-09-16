@@ -21,15 +21,92 @@ const REFUND_REASONS = ['상품 하자', '오배송', '표시·광고 상이', '
 // ── 인증 ──
 router.post('/api/admin/login', async (req, res) => {
   const b = await readJson(req);
-  auth.adminLogin(res, b.password, req);
-  sendJson(res, 200, { ok: true });
+  const user = auth.adminLogin(res, b.loginId, b.password, req);
+  auth.audit(req, user, '로그인', `운영자 ${user.loginId}`, null);
+  sendJson(res, 200, { ok: true, user });
 });
 router.post('/api/admin/logout', (req, res) => {
   auth.adminLogout(req, res);
   sendJson(res, 200, { ok: true });
 });
 router.get('/api/admin/me', (req, res) => {
-  sendJson(res, 200, { authenticated: !!auth.currentAdmin(req), channels: CHANNELS, orderStatuses: ORDER_STATUSES, refundBearers: REFUND_BEARERS, refundReasons: REFUND_REASONS, supplierStatuses: SUPPLIER_STATUSES });
+  const user = auth.currentAdmin(req);
+  sendJson(res, 200, {
+    authenticated: !!user,
+    user: user ? auth.publicUser(user) : null,
+    roles: auth.ROLES,
+    channels: CHANNELS, orderStatuses: ORDER_STATUSES, refundBearers: REFUND_BEARERS,
+    refundReasons: REFUND_REASONS, supplierStatuses: SUPPLIER_STATUSES,
+  });
+});
+
+/** 본인 비밀번호 변경 */
+router.post('/api/admin/password', async (req, res) => {
+  const user = auth.requireAdmin(req);
+  const b = await readJson(req);
+  if (!auth.verifyPassword(b.current || '', user.password_hash, user.password_salt)) {
+    throw new HttpError(401, '현재 비밀번호가 올바르지 않습니다.');
+  }
+  if (String(b.next || '').length < 8) throw new HttpError(400, '새 비밀번호는 8자 이상이어야 합니다.');
+  const { hash, salt } = auth.hashPassword(b.next);
+  run('UPDATE admin_users SET password_hash = ?, password_salt = ?, must_change = 0 WHERE id = ?', hash, salt, user.id);
+  auth.audit(req, user, '비밀번호 변경', `운영자 ${user.login_id}`, null);
+  sendJson(res, 200, { ok: true });
+});
+
+// ── 운영자 계정 관리 (총괄만) ──
+router.get('/api/admin/accounts', (req, res) => {
+  auth.requireOwner(req);
+  sendJson(res, 200, {
+    roles: auth.ROLES,
+    accounts: all('SELECT id, login_id, name, role, phone, active, must_change, last_login_at, created_at FROM admin_users ORDER BY id'),
+    logs: all('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 60'),
+  });
+});
+
+router.post('/api/admin/accounts', async (req, res) => {
+  const owner = auth.requireOwner(req);
+  const b = await readJson(req);
+  const loginId = String(b.loginId || '').trim();
+  if (!/^[a-z0-9_]{3,20}$/.test(loginId)) throw new HttpError(400, '아이디는 영문 소문자·숫자·밑줄 3~20자로 만들어 주세요.');
+  if (!String(b.name || '').trim()) throw new HttpError(400, '담당자 이름을 입력해 주세요.');
+  if (get('SELECT id FROM admin_users WHERE login_id = ?', loginId)) throw new HttpError(409, '이미 사용 중인 아이디입니다.');
+  if (String(b.password || '').length < 8) throw new HttpError(400, '초기 비밀번호는 8자 이상이어야 합니다.');
+
+  const { hash, salt } = auth.hashPassword(b.password);
+  const ins = run(
+    `INSERT INTO admin_users(login_id, name, role, phone, password_hash, password_salt, must_change)
+     VALUES(?,?,?,?,?,?,1)`,
+    loginId, b.name.trim(), auth.ROLES.includes(b.role) ? b.role : '담당자', b.phone || null, hash, salt);
+  auth.audit(req, owner, '운영자 계정 생성', `${loginId} (${b.role || '담당자'})`, null);
+  sendJson(res, 201, { ok: true, id: Number(ins.lastInsertRowid) });
+});
+
+router.put('/api/admin/accounts/:id', async (req, res, ctx) => {
+  const owner = auth.requireOwner(req);
+  const b = await readJson(req);
+  const target = get('SELECT * FROM admin_users WHERE id = ?', Number(ctx.params.id));
+  if (!target) throw new HttpError(404, '계정을 찾을 수 없습니다.');
+
+  const nextActive = b.active !== undefined ? (b.active ? 1 : 0) : target.active;
+  const nextRole = auth.ROLES.includes(b.role) ? b.role : target.role;
+  const owners = get("SELECT COUNT(*) AS c FROM admin_users WHERE role = '총괄' AND active = 1").c;
+  if (target.role === '총괄' && target.active && (nextRole !== '총괄' || !nextActive) && owners <= 1) {
+    throw new HttpError(400, '총괄 관리자가 최소 한 명은 있어야 합니다.');
+  }
+
+  run('UPDATE admin_users SET name = ?, role = ?, phone = ?, active = ? WHERE id = ?',
+    b.name ?? target.name, nextRole, b.phone ?? target.phone, nextActive, target.id);
+  if (b.password) {
+    if (String(b.password).length < 8) throw new HttpError(400, '비밀번호는 8자 이상이어야 합니다.');
+    const { hash, salt } = auth.hashPassword(b.password);
+    run('UPDATE admin_users SET password_hash = ?, password_salt = ?, must_change = 1 WHERE id = ?', hash, salt, target.id);
+    auth.revokeAdminSessions(target.id);
+    auth.audit(req, owner, '비밀번호 재발급', `운영자 ${target.login_id}`, null);
+  }
+  if (!nextActive) auth.revokeAdminSessions(target.id);
+  auth.audit(req, owner, '운영자 계정 수정', target.login_id, `역할 ${nextRole} / ${nextActive ? '사용' : '중지'}`);
+  sendJson(res, 200, { ok: true });
 });
 
 // ── 대시보드 ──
@@ -99,7 +176,7 @@ router.get('/api/admin/products', (req, res, ctx) => {
 });
 
 router.patch('/api/admin/products/:id/approve', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireAdmin(req);
   const b = await readJson(req);
   const product = get('SELECT * FROM products WHERE id = ?', Number(ctx.params.id));
   if (!product) throw new HttpError(404, '상품을 찾을 수 없습니다.');
@@ -112,12 +189,14 @@ router.patch('/api/admin/products/:id/approve', async (req, res, ctx) => {
       run(`INSERT INTO channel_listings(product_id, channel, listed) VALUES(?, '자사몰', 1)
            ON CONFLICT(product_id, channel) DO UPDATE SET listed = 1, updated_at = datetime('now','localtime')`, product.id);
     });
+    auth.audit(req, actor, '상품 승인', product.name, null);
     return sendJson(res, 200, { ok: true, status: '판매중' });
   }
 
   const reason = String(b.reason || '').trim();
   if (!reason) throw new HttpError(400, '반려 사유를 입력해 주세요. (공급처 화면에 그대로 표시됩니다)');
   run("UPDATE products SET status = '반려', reject_reason = ?, updated_at = datetime('now','localtime') WHERE id = ?", reason, product.id);
+  auth.audit(req, actor, '상품 반려', product.name, reason);
   sendJson(res, 200, { ok: true, status: '반려' });
 });
 
@@ -199,7 +278,7 @@ router.get('/api/admin/suppliers', (req, res) => {
 });
 
 router.post('/api/admin/suppliers', async (req, res) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   if (!b.name) throw new HttpError(400, '상호를 입력해 주세요.');
   if (!b.loginId) throw new HttpError(400, '공급처 로그인 아이디를 입력해 주세요.');
@@ -233,7 +312,7 @@ router.post('/api/admin/suppliers', async (req, res) => {
 });
 
 router.put('/api/admin/suppliers/:id', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const s = get('SELECT * FROM suppliers WHERE id = ?', Number(ctx.params.id));
   if (!s) throw new HttpError(404, '공급처를 찾을 수 없습니다.');
@@ -246,7 +325,7 @@ router.put('/api/admin/suppliers/:id', async (req, res, ctx) => {
 });
 
 router.put('/api/admin/suppliers/:id/contract', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const sid = Number(ctx.params.id);
   const c = get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', sid);
@@ -273,7 +352,7 @@ router.put('/api/admin/suppliers/:id/contract', async (req, res, ctx) => {
 });
 
 router.post('/api/admin/suppliers/:id/password', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const s = get('SELECT * FROM suppliers WHERE id = ?', Number(ctx.params.id));
   if (!s) throw new HttpError(404, '공급처를 찾을 수 없습니다.');
@@ -332,7 +411,7 @@ router.get('/api/admin/commissions', (req, res) => {
 
 /** 협의 결과를 한 번에 저장한다. 요율은 % 또는 소수 어느 쪽으로 넣어도 된다. */
 router.put('/api/admin/commissions', async (req, res) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const memo = b.memo || null;
   let changed = 0;
@@ -360,12 +439,13 @@ router.put('/api/admin/commissions', async (req, res) => {
     }
   });
 
+  auth.audit(req, actor, '수수료율 변경', null, `${changed}건${memo ? ' / ' + memo : ''}`);
   sendJson(res, 200, { ok: true, changed });
 });
 
 /** 한 공급처의 상품 개별율을 모두 지우고 기본율로 되돌린다. */
 router.post('/api/admin/commissions/:supplierId/reset', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const sid = Number(ctx.params.supplierId);
   const targets = all('SELECT * FROM products WHERE supplier_id = ? AND commission_rate IS NOT NULL', sid);
@@ -414,7 +494,7 @@ router.get('/api/admin/orders/:id', (req, res, ctx) => {
 });
 
 router.patch('/api/admin/orders/:id/status', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireAdmin(req);
   const b = await readJson(req);
   if (!ORDER_STATUSES.includes(b.status)) throw new HttpError(400, `상태값이 올바르지 않습니다. (${ORDER_STATUSES.join(', ')})`);
   const order = get('SELECT * FROM orders WHERE id = ?', Number(ctx.params.id));
@@ -423,8 +503,8 @@ router.patch('/api/admin/orders/:id/status', async (req, res, ctx) => {
 
   tx(() => {
     run("UPDATE orders SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?", b.status, order.id);
-    run('INSERT INTO order_logs(order_id, from_status, to_status, memo) VALUES(?,?,?,?)',
-      order.id, order.status, b.status, b.memo || null);
+    run('INSERT INTO order_logs(order_id, from_status, to_status, memo, actor) VALUES(?,?,?,?,?)',
+      order.id, order.status, b.status, b.memo || null, actor.name);
     if (b.status === '반품') {
       // 계약서 제7조: 상품 하자·오배송은 공급처, 단순 변심은 소비자,
       // 상품정보 오기재·주문 전달 누락은 수탁자(히스메이커스)가 비용을 부담한다.
@@ -441,6 +521,7 @@ router.patch('/api/admin/orders/:id/status', async (req, res, ctx) => {
       run('UPDATE order_items SET refunded = 0 WHERE order_id = ?', order.id);
     }
   });
+  auth.audit(req, actor, '주문 상태 변경', order.order_no, `${order.status} → ${b.status}`);
   sendJson(res, 200, { ok: true, status: b.status });
 });
 
@@ -565,7 +646,7 @@ router.get('/api/admin/settlement', (req, res, ctx) => {
 
 /** 기간 마감 → 공급처별 정산서 생성(미정산 건만 묶는다) */
 router.post('/api/admin/settlement', async (req, res) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const from = b.from || monthStart();
   const to = b.to || monthEnd();
@@ -606,11 +687,12 @@ router.post('/api/admin/settlement', async (req, res) => {
     return sid;
   });
 
+  auth.audit(req, actor, '정산서 생성', `공급처 ${b.supplierId}`, `${from}~${to} 지급 ${payout}원`);
   sendJson(res, 201, { ok: true, id, sales, commission, refund, supplierCost, payout, payDue });
 });
 
 router.patch('/api/admin/settlements/:id', async (req, res, ctx) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const s = get('SELECT * FROM settlements WHERE id = ?', Number(ctx.params.id));
   if (!s) throw new HttpError(404, '정산 내역을 찾을 수 없습니다.');
@@ -702,7 +784,7 @@ router.get('/api/admin/settings', (req, res) => {
 });
 
 router.put('/api/admin/settings', async (req, res) => {
-  auth.requireAdmin(req);
+  const actor = auth.requireOwner(req);
   const b = await readJson(req);
   const map = {
     mallName: 'mall_name', orgName: 'org_name', orgBizNo: 'org_biz_no', orgAddress: 'org_address',
