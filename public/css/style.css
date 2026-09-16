@@ -14,12 +14,23 @@ button,input,select,textarea{font-family:inherit;font-size:inherit}
 img{max-width:100%;display:block}
 
 header.site{position:sticky;top:0;z-index:40;background:#fff;border-bottom:1px solid var(--line)}
-.site-inner{max-width:1120px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px}
-.logo{font-weight:800;font-size:1.15rem;color:var(--green-900);letter-spacing:-.4px;cursor:pointer}
-.logo small{display:block;font-size:.7rem;font-weight:600;color:var(--ink-soft);letter-spacing:0}
-.site-search{flex:1;display:flex;gap:6px}
-.site-search input{flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:var(--soft)}
-.site-actions{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.site-inner{max-width:1120px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{font-weight:800;font-size:1.15rem;color:var(--green-900);letter-spacing:-.4px;cursor:pointer;
+  white-space:nowrap;flex:none}
+.logo small{display:block;font-size:.7rem;font-weight:600;color:var(--ink-soft);letter-spacing:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.site-search{flex:1 1 220px;display:flex;gap:6px;min-width:0}
+.site-search input{flex:1;min-width:0;padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:var(--soft)}
+.site-actions{display:flex;gap:6px;align-items:center;white-space:nowrap;flex:none}
+
+/* 좁은 화면에서는 로고·버튼 줄과 검색 줄을 나눈다 */
+@media (max-width:640px){
+  .site-inner{gap:8px;padding:10px 14px}
+  .logo{font-size:1.05rem;flex:1 1 auto;min-width:0}
+  .logo small{max-width:100%}
+  .site-search{order:3;flex:1 0 100%}
+  .site-actions{order:2}
+}
 .cart-btn{position:relative}
 .cart-count{position:absolute;top:-4px;right:-4px;background:var(--red-600);color:#fff;border-radius:999px;
   font-size:.7rem;font-weight:800;min-width:19px;height:19px;display:grid;place-items:center;padding:0 5px}
