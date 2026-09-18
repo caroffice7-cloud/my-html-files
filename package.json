@@ -1,0 +1,14 @@
+{
+  "name": "boseong-farm-mall",
+  "version": "1.0.0",
+  "private": true,
+  "description": "보성군 농산물 직거래 자사몰 플랫폼 (BMCTVda) — 위탁판매·다채널 유통",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node src/seed.js",
+    "reset": "node src/seed.js --reset"
+  },
+  "engines": { "node": ">=22.13.0" }
+}

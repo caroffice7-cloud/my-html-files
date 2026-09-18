@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMCTVda 보성 직거래장터 — 보성 농가가 직접 보내드립니다</title>
+<meta name="description" content="보성군 농가·소상공인이 직접 생산한 농산물과 가공식품을 산지에서 바로 보내드리는 직거래 장터입니다.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="site">
+  <div class="site-inner">
+    <div class="logo" onclick="goHome()">
+      BMCTVda 직거래장터
+      <small id="orgLine">농업회사법인 히스메이커스(주)</small>
+    </div>
+    <div class="site-search">
+      <input id="searchBox" type="search" placeholder="상품·농가 검색" onkeydown="if(event.key==='Enter')doSearch()">
+      <button class="btn btn-ghost btn-sm" onclick="doSearch()">검색</button>
+    </div>
+    <div class="site-actions">
+      <button class="btn btn-ghost btn-sm" onclick="showLookup()">주문조회</button>
+      <button class="btn btn-primary btn-sm cart-btn" onclick="showCart()">
+        장바구니<span class="cart-count hidden" id="cartCount">0</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<nav class="cats"><div class="cats-inner" id="cats"></div></nav>
+
+<main>
+  <!-- 상품 목록 -->
+  <section id="viewList">
+    <div class="hero">
+      <h2>보성 농가가 직접 보내드립니다</h2>
+      <p>계약을 맺은 보성 지역 농가·소상공인이 생산한 상품을 산지에서 바로 발송합니다. 중간 유통 없이 생산자에게 정산됩니다.</p>
+    </div>
+    <div id="productGrid" class="grid"></div>
+    <div id="listEmpty" class="hidden panel center">
+      <p class="muted">아직 판매 중인 상품이 없습니다.</p>
+      <p class="muted">공급처가 상품을 등록하고 운영자가 승인하면 이곳에 표시됩니다.</p>
+    </div>
+  </section>
+
+  <!-- 상품 상세 -->
+  <section id="viewDetail" class="hidden">
+    <button class="btn btn-ghost btn-sm" onclick="goHome()" style="margin-bottom:14px">← 목록으로</button>
+    <div id="detailBody"></div>
+  </section>
+
+  <!-- 장바구니 · 주문 -->
+  <section id="viewCart" class="hidden">
+    <h2>장바구니 · 주문</h2>
+    <div class="steps">
+      <div class="step on">1. 담은 상품</div>
+      <div class="step">2. 주문 정보</div>
+      <div class="step">3. 결제 안내</div>
+    </div>
+    <div class="panel">
+      <h3>담은 상품</h3>
+      <div id="cartLines"></div>
+      <div id="cartSummary"></div>
+    </div>
+
+    <div class="panel" id="ordererPanel">
+      <h3>주문자 · 배송지</h3>
+      <div class="grid2">
+        <div class="field"><label>주문자 이름 <span class="req">*</span></label><input id="cName" autocomplete="name"></div>
+        <div class="field"><label>연락처 <span class="req">*</span></label><input id="cPhone" type="tel" inputmode="numeric" placeholder="010-1234-5678"></div>
+        <div class="field"><label>이메일</label><input id="cEmail" type="email" autocomplete="email"></div>
+        <div class="field"><label>우편번호</label><input id="cZip" inputmode="numeric"></div>
+      </div>
+      <div class="field"><label>주소 <span class="req">*</span></label><input id="cAddr" placeholder="도로명 주소"></div>
+      <div class="field"><label>상세주소</label><input id="cAddrDetail"></div>
+      <div class="field"><label>배송 요청사항</label><input id="cMemo" placeholder="부재 시 문 앞에 놓아주세요 등"></div>
+    </div>
+
+    <div class="panel">
+      <h3>결제 방법</h3>
+      <div class="field">
+        <select id="payMethod" onchange="onPayMethodChange()"></select>
+      </div>
+
+      <!-- 지역화폐 결제 -->
+      <div id="localBox" class="hidden">
+        <div class="field">
+          <label for="chargeType">결제 방식</label>
+          <select id="chargeType"></select>
+        </div>
+        <div class="notice" id="localNotice"></div>
+      </div>
+      <div id="localBlocked"></div>
+
+      <!-- 무통장입금 -->
+      <div id="bankBox">
+        <div class="field"><label>입금자명 (주문자와 다를 경우)</label><input id="cPayer"></div>
+        <div class="notice" id="bankNotice"></div>
+      </div>
+      <p class="muted" style="margin-top:10px">
+        신선식품·가공식품은 포장을 개봉하여 상품 가치가 훼손된 경우 청약철회가 제한될 수 있습니다.
+        상품 하자·오배송은 수령 후 24시간 이내에 사진과 함께 알려주시면 재발송 또는 환불해 드립니다.
+      </p>
+      <label class="field" style="display:flex;gap:9px;align-items:flex-start;margin-top:12px">
+        <input type="checkbox" id="cAgree" style="width:22px;height:22px;flex:none;margin-top:2px">
+        <span style="font-weight:600;font-size:.92rem">주문 내용을 확인했으며, 배송을 위해 공급처(생산자)에게 주문자 정보가 제공되는 것에 동의합니다. <span class="req">(필수)</span></span>
+      </label>
+    </div>
+
+    <div id="orderMsg"></div>
+    <button class="btn btn-primary btn-block" id="orderBtn" onclick="submitOrder()">주문하기</button>
+  </section>
+
+  <!-- 주문 조회 -->
+  <section id="viewLookup" class="hidden">
+    <h2>주문 조회</h2>
+    <div class="panel">
+      <div class="grid2">
+        <div class="field"><label>주문번호</label><input id="lkNo" placeholder="M260916-0001"></div>
+        <div class="field"><label>연락처</label><input id="lkPhone" type="tel" inputmode="numeric"></div>
+      </div>
+      <button class="btn btn-primary" onclick="lookupOrder()">조회하기</button>
+      <div id="lookupResult"></div>
+    </div>
+  </section>
+
+  <!-- 주문 완료 -->
+  <section id="viewDone" class="hidden"></section>
+</main>
+
+<footer class="site">
+  <div class="footer-inner">
+    <b id="fOrg">농업회사법인 히스메이커스 주식회사</b><br>
+    <span id="fInfo"></span><br>
+    <span class="muted">본 쇼핑몰은 보성군 지역 농가·소상공인과 위탁판매 계약을 맺고 상품을 판매하는 통신판매중개 겸 통신판매 사이트입니다.
+    상품의 품질·표시사항·원산지에 대한 책임은 각 공급처(생산자)에게 있습니다.</span>
+    <div style="margin-top:12px">
+      <a href="/supplier" class="btn btn-ghost btn-sm">공급처 로그인</a>
+      <a href="/admin" class="btn btn-ghost btn-sm">운영자 화면</a>
+    </div>
+  </div>
+</footer>
+
+<script src="/js/shop.js"></script>
+</body>
+</html>
