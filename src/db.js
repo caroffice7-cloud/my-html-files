@@ -196,6 +196,16 @@ ensureColumn('products', 'commission_rate', 'REAL');
 // 처리 이력에 담당자를 남긴다
 ensureColumn('order_logs', 'actor', 'TEXT');
 
+// ── 보성군 지역화폐 결제 결합 ──
+// 가맹 여부는 공급처 단위로 두고, 품목 제한이 있는 상품만 개별로 덮어쓴다(수수료율과 같은 2단계 구조).
+ensureColumn('suppliers', 'local_currency', 'INTEGER NOT NULL DEFAULT 1');
+ensureColumn('products', 'local_currency', 'INTEGER');
+// 지역화폐로 실제 결제된 금액·승인번호·결제일시. 지자체 보고와 정산 구분에 쓴다.
+ensureColumn('orders', 'local_currency_amount', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('orders', 'local_currency_approval', 'TEXT');
+ensureColumn('orders', 'local_currency_charge_type', 'TEXT');
+ensureColumn('orders', 'local_currency_paid_at', 'TEXT');
+
 // 운영자 계정 · 감사 기록
 db.exec(`
 CREATE TABLE IF NOT EXISTS admin_users (

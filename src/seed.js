@@ -132,6 +132,15 @@ function seed() {
     setSetting('default_shipping_fee', '3500');
     setSetting('free_ship_over', '50000');
     setSetting('order_forward_sla', '영업일 기준 1일 이내 공급처 전달');
+    // 보성군 지역화폐 결제 — 가맹 등록 전에는 '중지'로 두고, 등록 후 설정 화면에서 켠다.
+    setSetting('local_currency_enabled', '1');
+    setSetting('local_currency_name', '보성사랑상품권(카드형)');
+    setSetting('local_currency_merchant_no', '');
+    setSetting('local_currency_covers_shipping', '1');
+    setSetting('local_currency_max_per_order', '0');
+    setSetting('local_currency_notice',
+      '주문을 접수하면 담당자가 연락드려 보성 지역화폐 카드로 결제를 도와드립니다. '
+      + '결제가 확인되면 공급처로 전달되어 발송됩니다.');
   });
   console.log('초기 데이터 적재 완료');
 }

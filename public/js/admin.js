@@ -164,6 +164,7 @@ function switchView(v) {
   document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   document.querySelectorAll('.admin-wrap > section').forEach((s) => s.classList.toggle('hidden', s.id !== `view-${v}`));
   ({ dashboard: renderDashboard, products: renderProducts, channels: renderChannels, orders: renderOrders,
+     localcurrency: renderLocalCurrency,
      suppliers: renderSuppliers, commissions: renderCommissions, settlement: renderSettlement,
      settings: renderSettings, accounts: renderAccounts }[v])();
 }
@@ -179,7 +180,14 @@ async function renderDashboard() {
       <div class="kpi ${d.counts.ordersToForward ? 'danger' : ''}"><div class="k">공급처 전달 대기</div><div class="v">${d.counts.ordersToForward}건</div></div>
       <div class="kpi"><div class="k">이번 달 판매금액</div><div class="v">${won(d.sales.sales)}</div></div>
       <div class="kpi"><div class="k">이번 달 수수료 수익</div><div class="v">${won(d.sales.commission)}</div></div>
+      ${d.localCurrency?.enabled ? `
+      <div class="kpi"><div class="k">이번 달 지역화폐 결제</div><div class="v">${won(d.localCurrency.paid.amount)}</div></div>
+      <div class="kpi ${d.localCurrency.waiting.c ? 'danger' : ''}"><div class="k">지역화폐 결제 대기</div><div class="v">${d.localCurrency.waiting.c}건</div></div>` : ''}
     </div>
+
+    ${d.localCurrency?.enabled && d.localCurrency.waiting.c ? `<div class="alert alert-warn">
+      지역화폐 결제확인이 안 된 주문이 ${d.localCurrency.waiting.c}건(${won(d.localCurrency.waiting.amount)}) 있습니다.
+      승인번호를 입력해야 공급처로 전달됩니다. → <button class="btn btn-sm btn-primary" onclick="switchView('localcurrency')">지역화폐 결제로 이동</button></div>` : ''}
 
     ${d.counts.ordersToForward ? `<div class="alert alert-warn">공급처에 전달하지 않은 주문이 ${d.counts.ordersToForward}건 있습니다.
       계약상 영업일 기준 1일 이내에 전달해야 합니다. → <button class="btn btn-sm btn-primary" onclick="switchView('orders')">주문 관리로 이동</button></div>` : ''}
@@ -408,7 +416,7 @@ async function renderOrders() {
     </div>
     <div class="table-scroll"><table>
       <thead><tr><th>주문번호</th><th>일시</th><th>채널</th><th>주문자</th><th>상품</th>
-        <th class="num">금액</th><th>입금</th><th>상태</th><th></th></tr></thead>
+        <th class="num">금액</th><th>결제수단</th><th>입금</th><th>상태</th><th></th></tr></thead>
       <tbody>${d.orders.map((o) => `<tr>
         <td><b>${esc(o.order_no)}</b></td>
         <td class="mini">${esc(o.created_at)}</td>
@@ -416,11 +424,16 @@ async function renderOrders() {
         <td>${esc(o.customer_name)}<br><span class="mini">${esc(o.customer_phone)}</span></td>
         <td class="mini">${o.items.map((i) => `${esc(i.name)} ×${i.qty}`).join('<br>')}</td>
         <td class="num">${won(o.total_amount)}</td>
+        <td class="mini">${esc(o.pay_method || '')}${o.pay_method === '보성 지역화폐'
+          ? (o.local_currency_approval
+             ? `<br><span style="color:var(--green-700)">승인 ${esc(o.local_currency_approval)}</span>`
+             : '<br><span style="color:var(--red-600)">결제확인 필요</span>')
+          : ''}</td>
         <td><label class="mini"><input type="checkbox" ${o.paid ? 'checked' : ''} onchange="setPaid(${o.id}, this.checked)"> 확인</label></td>
         <td><select onchange="setOrderStatus(${o.id}, this.value)">
           ${d.statuses.map((s) => `<option ${o.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
         <td><button class="btn btn-sm btn-outline" onclick="openOrder(${o.id})">상세</button></td>
-      </tr>`).join('') || '<tr><td colspan="9" class="muted">주문이 없습니다.</td></tr>'}
+      </tr>`).join('') || '<tr><td colspan="10" class="muted">주문이 없습니다.</td></tr>'}
       </tbody></table></div>`;
 }
 
@@ -433,6 +446,128 @@ async function setOrderStatus(id, status) {
   if (status === '반품') return openRefundDialog(id);
   try { await api(`/api/admin/orders/${id}/status`, { method: 'PATCH', body: { status } }); renderOrders(); }
   catch (err) { alert(err.message); renderOrders(); }
+}
+
+/* ── 지역화폐 결제 ── */
+let lcPeriod = { from: '', to: '' };
+
+async function renderLocalCurrency() {
+  const params = new URLSearchParams();
+  if (lcPeriod.from) params.set('from', lcPeriod.from);
+  if (lcPeriod.to) params.set('to', lcPeriod.to);
+  const d = await api(`/api/admin/localcurrency?${params}`);
+  lcPeriod = { from: d.period.from, to: d.period.to };
+  state.chargeTypes = d.chargeTypes;
+
+  $('view-localcurrency').innerHTML = `
+    ${d.config.enabled ? '' : '<div class="alert alert-warn">현재 지역화폐 결제를 받지 않도록 설정되어 있습니다. 설정 화면에서 켤 수 있습니다.</div>'}
+
+    <div class="panel">
+      <h3>결제 대기 — 승인번호를 입력해야 공급처로 전달됩니다</h3>
+      <div class="table-scroll"><table>
+        <thead><tr><th>주문번호</th><th>접수일시</th><th>주문자</th><th class="num">주문금액</th>
+          <th class="num">지역화폐 예정액</th><th>결제 방식</th><th>상태</th><th></th></tr></thead>
+        <tbody>${d.pending.map((o) => `<tr>
+          <td><b>${esc(o.order_no)}</b></td>
+          <td class="mini">${esc(o.created_at)}</td>
+          <td>${esc(o.customer_name)}<br><span class="mini">${esc(o.customer_phone)}</span></td>
+          <td class="num">${won(o.total_amount)}</td>
+          <td class="num">${won(o.local_currency_amount)}</td>
+          <td class="mini">${esc(o.local_currency_charge_type || '')}</td>
+          <td class="mini">${esc(o.status)}</td>
+          <td><button class="btn btn-sm btn-primary" onclick="openLocalPayDialog(${o.id}, ${o.local_currency_amount}, '${esc(o.order_no)}')">결제확인</button></td>
+        </tr>`).join('') || '<tr><td colspan="8" class="muted">결제 대기 중인 지역화폐 주문이 없습니다.</td></tr>'}
+        </tbody></table></div>
+    </div>
+
+    <div class="panel">
+      <h3>결제 완료 내역</h3>
+      <div class="toolbar">
+        <input id="lcFrom" type="date" value="${esc(d.period.from)}">
+        <input id="lcTo" type="date" value="${esc(d.period.to)}">
+        <button class="btn btn-sm btn-primary" onclick="applyLcPeriod()">조회</button>
+        <a class="btn btn-sm btn-outline" href="/api/admin/localcurrency.csv?from=${encodeURIComponent(d.period.from)}&to=${encodeURIComponent(d.period.to)}">CSV 내려받기</a>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi"><div class="k">기간 내 결제 건수</div><div class="v">${d.totals.orders}건</div></div>
+        <div class="kpi"><div class="k">지역화폐 결제액</div><div class="v">${won(d.totals.amount)}</div></div>
+      </div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>주문번호</th><th>결제일시</th><th>주문자</th><th class="num">지역화폐 결제액</th>
+          <th>승인번호</th><th>결제 방식</th><th>상태</th><th></th></tr></thead>
+        <tbody>${d.confirmed.map((o) => `<tr>
+          <td><b>${esc(o.order_no)}</b></td>
+          <td class="mini">${esc(o.local_currency_paid_at || '')}</td>
+          <td>${esc(o.customer_name)}</td>
+          <td class="num">${won(o.local_currency_amount)}</td>
+          <td class="mini">${esc(o.local_currency_approval || '')}</td>
+          <td class="mini">${esc(o.local_currency_charge_type || '')}</td>
+          <td class="mini">${esc(o.status)}</td>
+          <td><button class="btn btn-sm btn-ghost" onclick="cancelLocalPay(${o.id})">확인 취소</button></td>
+        </tr>`).join('') || '<tr><td colspan="8" class="muted">기간 내 결제 내역이 없습니다.</td></tr>'}
+        </tbody></table></div>
+    </div>
+
+    <div class="panel">
+      <h3>공급처별 지역화폐 판매</h3>
+      <table><thead><tr><th>공급처</th><th class="num">주문</th><th class="num">판매금액</th></tr></thead>
+        <tbody>${d.bySupplier.map((r) => `<tr><td>${esc(r.supplier || '-')}</td>
+          <td class="num">${r.orders}</td><td class="num">${won(r.amount)}</td></tr>`).join('')
+          || '<tr><td colspan="3" class="muted">내역이 없습니다.</td></tr>'}</tbody></table>
+    </div>
+
+    <div class="panel">
+      <h3>가맹 설정 현황</h3>
+      <p class="mini">지역화폐로 살 수 있는지는 <b>공급처 단위</b>로 정하고, 품목 제한이 있는 상품만 따로 지정합니다.
+        공급처 가맹 여부는 "공급처 · 계약" 화면에서 바꿉니다.</p>
+      <table><thead><tr><th>공급처</th><th>지역화폐</th></tr></thead>
+        <tbody>${d.merchants.map((m) => `<tr><td>${esc(m.name)}</td>
+          <td>${m.usable ? '<span class="tag ok">사용 가능</span>' : '<span class="tag">사용 불가</span>'}</td></tr>`).join('')}</tbody></table>
+    </div>`;
+}
+
+function applyLcPeriod() {
+  lcPeriod = { from: $('lcFrom').value, to: $('lcTo').value };
+  renderLocalCurrency();
+}
+
+function openLocalPayDialog(id, amount, orderNo) {
+  $('dlgTitle').textContent = `지역화폐 결제확인 — ${orderNo}`;
+  $('dlgBody').innerHTML = `
+    <p class="mini">카드단말기로 결제한 뒤 영수증의 <b>승인번호</b>를 그대로 입력해 주세요.
+      승인번호가 기록되어야 입금확인 처리되고 공급처로 전달할 수 있습니다.</p>
+    <div class="row-form">
+      <div><label class="mini">지역화폐 결제금액 (원)</label><input id="lcAmount" type="number" value="${amount}"></div>
+      <div><label class="mini">결제 방식</label>
+        <select id="lcCharge">${(state.chargeTypes || []).map((t) => `<option>${esc(t)}</option>`).join('')}</select></div>
+      <div style="grid-column:1/-1"><label class="mini">카드 승인번호</label>
+        <input id="lcApproval" placeholder="예) 30215487"></div>
+    </div>
+    <div id="lcMsg"></div>`;
+  $('dlgFoot').innerHTML = `
+    <button class="btn btn-sm btn-ghost" onclick="dlg.close(); renderLocalCurrency();">취소</button>
+    <button class="btn btn-sm btn-primary" onclick="submitLocalPay(${id})">결제확인</button>`;
+  dlg.showModal();
+}
+
+async function submitLocalPay(id) {
+  try {
+    await api(`/api/admin/orders/${id}/localcurrency`, { method: 'PATCH', body: {
+      approvalNo: $('lcApproval').value.trim(),
+      amount: Number($('lcAmount').value),
+      chargeType: $('lcCharge').value,
+    } });
+    dlg.close();
+    renderLocalCurrency();
+  } catch (err) { $('lcMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+}
+
+async function cancelLocalPay(id) {
+  if (!confirm('결제확인을 취소하시겠습니까? 입금확인이 해제되고 공급처 전달이 막힙니다.')) return;
+  try {
+    await api(`/api/admin/orders/${id}/localcurrency`, { method: 'PATCH', body: { cancel: true } });
+    renderLocalCurrency();
+  } catch (err) { alert(err.message); }
 }
 
 /** 반품 처리 — 계약서 제7조의 비용 부담 주체를 함께 기록한다. */
@@ -596,7 +731,7 @@ async function renderSuppliers() {
       ? '<div class="alert alert-warn">판매수수료율이 확정되지 않은 공급처가 있습니다. 수수료가 0%로 계산되므로 계약 확정 후 반드시 입력해 주세요.</div>' : ''}
     <div class="table-scroll"><table>
       <thead><tr><th>상호</th><th>대표자</th><th>사업자등록번호</th><th>아이디</th><th class="num">수수료</th>
-        <th>정산주기</th><th>배송</th><th class="num">할인한도</th><th class="num">상품</th><th>상태</th><th></th></tr></thead>
+        <th>정산주기</th><th>배송</th><th class="num">할인한도</th><th>지역화폐</th><th class="num">상품</th><th>상태</th><th></th></tr></thead>
       <tbody>${d.suppliers.map((s) => `<tr>
         <td><b>${esc(s.name)}</b><br><span class="mini">${esc(s.address)}</span></td>
         <td>${esc(s.ceo)}</td>
@@ -607,6 +742,7 @@ async function renderSuppliers() {
         <td class="mini">${esc(s.contract?.settlement_cycle)}</td>
         <td class="mini">${esc(s.contract?.shipping_method)}${s.contract?.ship_days ? `<br>영업일 ${s.contract.ship_days}일` : ''}</td>
         <td class="num">${s.contract?.discount_limit_rate == null ? '<span class="mini muted">미확정</span>' : pct(s.contract.discount_limit_rate)}</td>
+        <td class="mini">${s.localCurrency ? '사용 가능' : '<span style="color:var(--red-600)">사용 불가</span>'}</td>
         <td class="num">${s.productCount}</td>
         <td><span class="badge b-${esc(s.status)}">${esc(s.status)}</span></td>
         <td><button class="btn btn-sm btn-outline" onclick="openSupplier(${s.id})">계약 · 정보</button></td>
@@ -634,6 +770,11 @@ function openSupplier(id) {
       <div><label class="mini">상태</label><select id="sStatus">
         ${(state.supplierStatuses || ['협의중', '계약중', '계약종료']).map((v) =>
           `<option ${(s?.status || '협의중') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div><label class="mini">지역화폐 결제</label>
+        <select id="sLocal">
+          <option value="1" ${s === null || s?.localCurrency !== false ? 'selected' : ''}>사용 가능 (가맹)</option>
+          <option value="0" ${s?.localCurrency === false ? 'selected' : ''}>사용 불가</option>
+        </select></div>
       <div style="grid-column:1/-1"><label class="mini">소개글 (상품 상세페이지에 표시)</label>
         <textarea id="sIntro" rows="2">${esc(s?.intro)}</textarea></div>
     </div>
@@ -668,6 +809,7 @@ async function saveSupplier(id) {
     name: $('sName').value.trim(), ceo: $('sCeo').value.trim(), bizNo: $('sBizNo').value.trim(),
     taxType: $('sTaxType').value.trim(), address: $('sAddress').value.trim(), phone: $('sPhone').value.trim(),
     email: $('sEmail').value.trim(), intro: $('sIntro').value.trim(), status: $('sStatus').value,
+    localCurrency: $('sLocal').value === '1',
   };
   const contract = {
     commissionRate: $('cRate').value, commissionNote: $('cNote').value.trim(),
@@ -875,6 +1017,38 @@ async function renderSettings() {
       </div>
       <div style="margin-top:12px"><button class="btn btn-sm btn-primary" onclick="saveSettings()">저장</button></div>
       <div id="setMsg"></div>
+    </div>
+
+    <div class="panel">
+      <h3>보성군 지역화폐 결제</h3>
+      <p class="mini">카드형 지역화폐는 가맹점 단말기 결제가 원칙이라, 주문은 <b>결제요청</b>으로 접수되고
+        담당자가 결제한 뒤 승인번호를 입력하면 결제확인 처리됩니다. 결제확인 전에는 공급처로 전달되지 않습니다.</p>
+      <div class="row-form">
+        <div><label class="mini">지역화폐 결제 받기</label>
+          <select id="lcEnabled">
+            <option value="1" ${s.localCurrency.enabled ? 'selected' : ''}>사용</option>
+            <option value="0" ${s.localCurrency.enabled ? '' : 'selected'}>중지</option>
+          </select></div>
+        <div><label class="mini">지역화폐 이름 (소비자 화면 표기)</label>
+          <input id="lcName" value="${esc(s.localCurrency.name)}"></div>
+        <div><label class="mini">가맹점 번호</label>
+          <input id="lcMerchant" value="${esc(s.localCurrency.merchantNo)}" placeholder="지자체 발급 가맹점번호"></div>
+        <div><label class="mini">배송비도 지역화폐로 결제</label>
+          <select id="lcShip">
+            <option value="1" ${s.localCurrency.coversShipping ? 'selected' : ''}>포함</option>
+            <option value="0" ${s.localCurrency.coversShipping ? '' : 'selected'}>제외 (배송비 따로 받음)</option>
+          </select></div>
+        <div><label class="mini">1회 결제 한도 (원, 0이면 제한 없음)</label>
+          <input id="lcMax" type="number" value="${s.localCurrency.maxPerOrder}"></div>
+        <div style="grid-column:1/-1"><label class="mini">주문 완료 화면 안내문</label>
+          <textarea id="lcNotice" rows="2">${esc(s.localCurrency.notice)}</textarea></div>
+      </div>
+      <div style="margin-top:12px"><button class="btn btn-sm btn-primary" onclick="saveSettings()">저장</button></div>
+      <p class="mini" style="margin-top:12px">
+        · 지역화폐로 살 수 있는지는 <b>공급처 단위</b>로 정하고(공급처 · 계약 화면), 품목 제한이 있는 상품만 따로 지정합니다.<br>
+        · 온라인 즉시 승인(PG)이 열리면 <code>src/lib/localcurrency.js</code> 의 결제확인 앞단만 교체하면 됩니다.<br>
+        · 지역화폐 가맹 등록·업종코드·통신판매업 신고는 시스템 밖에서 먼저 마쳐야 합니다.
+      </p>
       <p class="mini" style="margin-top:14px">
         · 관리자 비밀번호는 서버 환경변수 <code>ADMIN_PASSWORD</code> 로 변경합니다.<br>
         · 배송비는 위탁배송 특성상 <b>공급처 단위</b>로 부과되며, 상품별로 따로 지정한 값이 있으면 그 값이 우선합니다.
@@ -889,6 +1063,12 @@ async function saveSettings() {
       orgPhone: $('tPhone').value, orgAddress: $('tAddr').value, bankAccount: $('tBank').value,
       defaultShippingFee: Number($('tShip').value), freeShipOver: Number($('tFree').value),
       siteBaseUrl: $('tBase').value.trim(),
+      localCurrencyEnabled: $('lcEnabled').value === '1',
+      localCurrencyName: $('lcName').value.trim(),
+      localCurrencyMerchantNo: $('lcMerchant').value.trim(),
+      localCurrencyCoversShipping: $('lcShip').value === '1',
+      localCurrencyMaxPerOrder: Number($('lcMax').value) || 0,
+      localCurrencyNotice: $('lcNotice').value.trim(),
     } });
     $('setMsg').innerHTML = '<div class="alert alert-ok">저장했습니다.</div>';
   } catch (err) { $('setMsg').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }

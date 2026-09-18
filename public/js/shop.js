@@ -2,7 +2,7 @@
 
 /* 소비자 쇼핑몰 로직 */
 
-const state = { info: null, products: [], cart: loadCart(), category: '', keyword: '' };
+const state = { info: null, products: [], cart: loadCart(), category: '', keyword: '', localCurrency: null };
 const won = (n) => `${Number(n || 0).toLocaleString('ko-KR')}원`;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,6 +35,7 @@ async function init() {
     state.info.orgAddress, state.info.orgPhone,
   ].filter(Boolean).join(' · ');
   $('bankNotice').textContent = state.info.bankAccount || '입금 계좌는 주문 후 안내드립니다.';
+  renderPayMethods();
   renderCats();
   renderCartCount();
 
@@ -77,9 +78,55 @@ function renderList() {
         <div class="pname">${esc(p.name)}</div>
         <div class="pspec">${esc(p.spec || '')}${p.origin ? ` · ${esc(p.origin)}` : ''}</div>
         <div class="pprice">${won(p.price)} ${soldOut ? '<span class="pbadge soldout">품절</span>' : ''}</div>
+        ${p.localCurrency ? '<div><span class="pbadge">지역화폐 사용가능</span></div>' : ''}
       </div>
     </article>`;
   }).join('');
+}
+
+/* ── 결제수단 ── */
+const PAY_LABEL = {
+  '무통장입금': '무통장입금 (계좌이체)',
+  '보성 지역화폐': '보성 지역화폐 카드',
+};
+
+function renderPayMethods() {
+  const methods = state.info.payMethods || ['무통장입금'];
+  const lc = state.info.localCurrency || {};
+  $('payMethod').innerHTML = methods.map((m) => {
+    const label = m === '보성 지역화폐' && lc.name ? `${lc.name}` : (PAY_LABEL[m] || m);
+    return `<option value="${esc(m)}">${esc(label)}</option>`;
+  }).join('');
+  const types = ['방문 카드단말기', '매장 방문 결제', '모바일 결제요청'];
+  $('chargeType').innerHTML = types.map((t) => `<option>${t}</option>`).join('');
+  $('localNotice').textContent = lc.notice || '';
+  onPayMethodChange();
+}
+
+function isLocalSelected() {
+  return $('payMethod') && $('payMethod').value === '보성 지역화폐';
+}
+
+function onPayMethodChange() {
+  const local = isLocalSelected();
+  $('localBox').classList.toggle('hidden', !local);
+  $('bankBox').classList.toggle('hidden', local);
+  renderLocalNotice();
+}
+
+/** 장바구니 안에 지역화폐로 살 수 없는 상품이 있으면 알려준다 */
+function renderLocalNotice() {
+  const box = $('localBlocked');
+  if (!box) return;
+  const lc = state.localCurrency;
+  if (!isLocalSelected() || !lc) { box.innerHTML = ''; return; }
+  if (lc.eligible) {
+    const shipNote = lc.coversShipping ? '배송비 포함' : '상품 금액만 (배송비 별도)';
+    box.innerHTML = `<div class="alert alert-ok">지역화폐로 ${won(lc.payable)} 결제 예정입니다. <span class="muted">(${shipNote})</span></div>`;
+  } else {
+    box.innerHTML = `<div class="alert alert-warn">${esc(lc.reason || '이 주문은 지역화폐로 결제할 수 없습니다.')}</div>`;
+  }
+  $('orderBtn').disabled = !lc.eligible;
 }
 
 function doSearch() {
@@ -131,6 +178,7 @@ async function showDetail(id) {
         <div class="psupplier">${esc(product.supplier?.name || '')}</div>
         <h2>${esc(product.name)}</h2>
         <p class="pprice" style="font-size:1.6rem">${won(product.price)}</p>
+        ${product.localCurrency ? `<p><span class="pbadge">${esc(state.info.localCurrency?.name || '지역화폐')} 사용가능</span></p>` : ''}
         ${product.stock === 0 ? '<div class="alert alert-warn">현재 품절입니다.</div>' : ''}
         <div style="display:flex;gap:10px;align-items:center;margin:16px 0">
           <div class="qty">
@@ -187,6 +235,8 @@ async function renderCart() {
     $('cartLines').innerHTML = '<p class="muted">장바구니가 비어 있습니다.</p>';
     $('cartSummary').innerHTML = '';
     $('orderBtn').disabled = true;
+    state.localCurrency = null;
+    renderLocalNotice();
     return;
   }
   let quote;
@@ -222,7 +272,9 @@ async function renderCart() {
     <div class="sum-row"><span>상품 금액</span><span>${won(quote.goods)}</span></div>
     <div class="sum-row"><span>배송비 <span class="muted">(공급처별 부과, 위탁배송)</span></span><span>${quote.shipping ? won(quote.shipping) : '무료'}</span></div>
     <div class="sum-row total"><span>결제 예정 금액</span><span>${won(quote.total)}</span></div>`;
+  state.localCurrency = quote.localCurrency || null;
   $('orderBtn').disabled = false;
+  renderLocalNotice();
 }
 
 function changeCartQty(productId, delta) {
@@ -252,6 +304,7 @@ async function submitOrder() {
         },
         memo: $('cMemo').value.trim(),
         payMethod: $('payMethod').value,
+        chargeType: isLocalSelected() ? $('chargeType').value : undefined,
         agreed: $('cAgree').checked,
       },
     });
@@ -263,7 +316,8 @@ async function submitOrder() {
         <p style="font-size:1.4rem;font-weight:800">주문번호 <span style="color:var(--green-700)">${esc(d.orderNo)}</span></p>
         <p>결제 예정 금액 <b>${won(d.amounts.total)}</b> <span class="muted">(상품 ${won(d.amounts.goods)} + 배송비 ${won(d.amounts.shipping)})</span></p>
         <div class="notice" style="text-align:left;margin-top:14px">
-          <b>${esc(d.payMethod)}</b><br>${esc(d.bankAccount || '입금 계좌는 문자로 안내드립니다.')}<br>
+          <b>${esc(d.payTitle || d.payMethod)}</b><br>${esc(d.bankAccount || '입금 계좌는 문자로 안내드립니다.')}<br>
+          ${d.chargeType ? `<span class="muted">결제 방식: ${esc(d.chargeType)}</span><br>` : ''}
           ${esc(d.message)}
         </div>
         <div style="margin-top:16px;display:flex;gap:8px;justify-content:center">
@@ -296,7 +350,9 @@ async function lookupOrder() {
       <table class="spec-table"><tbody>
         <tr><th>주문번호</th><td>${esc(d.order.orderNo)}</td></tr>
         <tr><th>주문일시</th><td>${esc(d.order.createdAt)}</td></tr>
-        <tr><th>결제금액</th><td>${won(d.order.total)} (${d.order.paid ? '입금확인' : '입금대기'})</td></tr>
+        <tr><th>결제수단</th><td>${esc(d.order.payMethod || '')}</td></tr>
+        <tr><th>결제금액</th><td>${won(d.order.total)} (${d.order.paid ? '결제확인' : '결제대기'})</td></tr>
+        ${d.order.localCurrencyAmount ? `<tr><th>지역화폐 결제</th><td>${won(d.order.localCurrencyAmount)}${d.order.localCurrencyApproval ? `<br><span class="muted">승인번호 ${esc(d.order.localCurrencyApproval)} · ${esc(d.order.localCurrencyPaidAt)}</span>` : '<br><span class="muted">담당자가 연락드려 결제를 도와드립니다.</span>'}</td></tr>` : ''}
         <tr><th>배송지</th><td>${esc(d.order.address)}</td></tr>
       </tbody></table>
       <h4 style="margin-top:16px">주문 상품</h4>

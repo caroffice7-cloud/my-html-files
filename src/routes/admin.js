@@ -10,6 +10,7 @@ const { CHANNELS } = require('../seed');
 const { normalizePhone, nextOrderNo } = require('./shop');
 const { monthStart, monthEnd } = require('./supplier');
 const { effectiveRate, normalizeRate, logChange } = require('../lib/commission');
+const localCurrency = require('../lib/localcurrency');
 
 const router = new Router();
 const ORDER_STATUSES = ['주문접수', '공급처전달', '출고', '배송중', '완료', '반품'];
@@ -128,6 +129,19 @@ router.get('/api/admin/dashboard', (req, res) => {
       ordersInProgress: get("SELECT COUNT(*) AS c FROM orders WHERE status IN ('공급처전달','출고','배송중')").c,
     },
     sales: { ...sales, net: sales.sales - sales.commission },
+    localCurrency: (() => {
+      const cfg = localCurrency.config();
+      const paidRow = get(
+        `SELECT COUNT(*) AS orders, IFNULL(SUM(local_currency_amount),0) AS amount FROM orders
+         WHERE pay_method = ? AND local_currency_approval IS NOT NULL AND local_currency_approval != ''
+           AND status != '반품' AND date(local_currency_paid_at) BETWEEN date(?) AND date(?)`,
+        localCurrency.LOCAL, from, to);
+      const waiting = get(
+        `SELECT COUNT(*) AS c, IFNULL(SUM(local_currency_amount),0) AS amount FROM orders
+         WHERE pay_method = ? AND (local_currency_approval IS NULL OR local_currency_approval = '')
+           AND status != '반품'`, localCurrency.LOCAL);
+      return { enabled: cfg.enabled, name: cfg.name, paid: paidRow, waiting };
+    })(),
     byStatus: all('SELECT status, COUNT(*) AS c, IFNULL(SUM(total_amount),0) AS amount FROM orders GROUP BY status'),
     byChannel: all(
       `SELECT o.channel, COUNT(DISTINCT o.id) AS orders, IFNULL(SUM(oi.subtotal),0) AS amount
@@ -215,6 +229,11 @@ router.put('/api/admin/products/:id', async (req, res, ctx) => {
     }
   }
 
+  if (b.localCurrency !== undefined) {
+    const v = b.localCurrency === null || b.localCurrency === '' ? null : (b.localCurrency ? 1 : 0);
+    run('UPDATE products SET local_currency = ? WHERE id = ?', v, p.id);
+  }
+
   run(
     `UPDATE products SET name=?, category=?, spec=?, origin=?, shelf_life=?, storage=?, ingredients=?, notice_items=?,
             description=?, supply_price=?, suggested_price=?, stock=?, shipping_fee=?, free_ship_over=?, status=?,
@@ -271,6 +290,7 @@ router.get('/api/admin/suppliers', (req, res) => {
     suppliers: all('SELECT * FROM suppliers ORDER BY id').map((s) => ({
       id: s.id, name: s.name, ceo: s.ceo, bizNo: s.biz_no, taxType: s.tax_type, address: s.address,
       phone: s.phone, email: s.email, loginId: s.login_id, intro: s.intro, status: s.status,
+      localCurrency: s.local_currency == null ? true : !!s.local_currency,
       contract: get('SELECT * FROM supplier_contracts WHERE supplier_id = ? ORDER BY id DESC', s.id),
       productCount: get('SELECT COUNT(*) AS c FROM products WHERE supplier_id = ?', s.id).c,
     })),
@@ -288,11 +308,12 @@ router.post('/api/admin/suppliers', async (req, res) => {
 
   const id = tx(() => {
     const ins = run(
-      `INSERT INTO suppliers(name, ceo, biz_no, tax_type, address, phone, email, login_id, password_hash, password_salt, intro, status)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO suppliers(name, ceo, biz_no, tax_type, address, phone, email, login_id, password_hash, password_salt, intro, status, local_currency)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       b.name, b.ceo || null, b.bizNo || null, b.taxType || null, b.address || null,
       b.phone || null, b.email || null, b.loginId, hash, salt, b.intro || null,
-      SUPPLIER_STATUSES.includes(b.status) ? b.status : '협의중'
+      SUPPLIER_STATUSES.includes(b.status) ? b.status : '협의중',
+      b.localCurrency === false ? 0 : 1
     );
     const sid = Number(ins.lastInsertRowid);
     run(
@@ -316,11 +337,17 @@ router.put('/api/admin/suppliers/:id', async (req, res, ctx) => {
   const b = await readJson(req);
   const s = get('SELECT * FROM suppliers WHERE id = ?', Number(ctx.params.id));
   if (!s) throw new HttpError(404, '공급처를 찾을 수 없습니다.');
+  const localBefore = s.local_currency == null ? 1 : s.local_currency;
+  const localAfter = b.localCurrency === undefined ? localBefore : (b.localCurrency ? 1 : 0);
   run(
-    'UPDATE suppliers SET name=?, ceo=?, biz_no=?, tax_type=?, address=?, phone=?, email=?, intro=?, status=? WHERE id = ?',
+    `UPDATE suppliers SET name=?, ceo=?, biz_no=?, tax_type=?, address=?, phone=?, email=?, intro=?, status=?,
+            local_currency=? WHERE id = ?`,
     b.name ?? s.name, b.ceo ?? s.ceo, b.bizNo ?? s.biz_no, b.taxType ?? s.tax_type, b.address ?? s.address,
-    b.phone ?? s.phone, b.email ?? s.email, b.intro ?? s.intro, b.status ?? s.status, s.id
+    b.phone ?? s.phone, b.email ?? s.email, b.intro ?? s.intro, b.status ?? s.status, localAfter, s.id
   );
+  if (localAfter !== localBefore) {
+    auth.audit(req, actor, '지역화폐 가맹 설정 변경', s.name, localAfter ? '사용 가능' : '사용 불가');
+  }
   sendJson(res, 200, { ok: true });
 });
 
@@ -501,6 +528,13 @@ router.patch('/api/admin/orders/:id/status', async (req, res, ctx) => {
   if (!order) throw new HttpError(404, '주문을 찾을 수 없습니다.');
   if (order.status === b.status) return sendJson(res, 200, { ok: true, unchanged: true });
 
+  // 지역화폐 주문은 결제확인(승인번호) 전에 공급처로 넘기지 않는다 — 대금 없이 발송되는 것을 막는다.
+  const forwardSteps = ['공급처전달', '출고', '배송중', '완료'];
+  if (localCurrency.isLocal(order.pay_method) && forwardSteps.includes(b.status)
+      && !(order.local_currency_approval || '').trim()) {
+    throw new HttpError(409, '지역화폐 결제확인(승인번호 입력)을 먼저 해주세요. 결제 전에는 공급처로 전달할 수 없습니다.');
+  }
+
   tx(() => {
     run("UPDATE orders SET status = ?, updated_at = datetime('now','localtime') WHERE id = ?", b.status, order.id);
     run('INSERT INTO order_logs(order_id, from_status, to_status, memo, actor) VALUES(?,?,?,?,?)',
@@ -532,6 +566,126 @@ router.patch('/api/admin/orders/:id/paid', async (req, res, ctx) => {
   if (!order) throw new HttpError(404, '주문을 찾을 수 없습니다.');
   run("UPDATE orders SET paid = ?, updated_at = datetime('now','localtime') WHERE id = ?", b.paid ? 1 : 0, order.id);
   sendJson(res, 200, { ok: true });
+});
+
+/**
+ * 지역화폐 결제확인 — 담당자가 카드단말기로 결제한 뒤 승인번호를 남긴다.
+ * 승인번호가 기록되어야 입금확인(paid)으로 넘어가고 공급처 전달이 가능하다.
+ */
+router.patch('/api/admin/orders/:id/localcurrency', async (req, res, ctx) => {
+  const actor = auth.requireAdmin(req);
+  const b = await readJson(req);
+  const order = get('SELECT * FROM orders WHERE id = ?', Number(ctx.params.id));
+  if (!order) throw new HttpError(404, '주문을 찾을 수 없습니다.');
+  if (!localCurrency.isLocal(order.pay_method)) {
+    throw new HttpError(409, '지역화폐로 결제 요청된 주문이 아닙니다.');
+  }
+
+  if (b.cancel) {
+    run(
+      `UPDATE orders SET local_currency_approval = NULL, local_currency_paid_at = NULL, paid = 0,
+              updated_at = datetime('now','localtime') WHERE id = ?`, order.id
+    );
+    run('INSERT INTO order_logs(order_id, from_status, to_status, memo, actor) VALUES(?,?,?,?,?)',
+      order.id, order.status, order.status, '지역화폐 결제확인 취소', actor.name);
+    auth.audit(req, actor, '지역화폐 결제확인 취소', order.order_no, '');
+    return sendJson(res, 200, { ok: true, paid: false });
+  }
+
+  const approval = String(b.approvalNo || '').trim();
+  if (!approval) throw new HttpError(400, '카드 승인번호를 입력해 주세요.');
+  const amount = Number(b.amount ?? order.local_currency_amount) || 0;
+  if (amount <= 0) throw new HttpError(400, '결제 금액을 확인해 주세요.');
+  if (amount > order.total_amount) {
+    throw new HttpError(409, `결제 금액이 주문 금액(${order.total_amount.toLocaleString('ko-KR')}원)을 넘을 수 없습니다.`);
+  }
+  const chargeType = localCurrency.CHARGE_TYPES.includes(b.chargeType)
+    ? b.chargeType : (order.local_currency_charge_type || localCurrency.CHARGE_TYPES[0]);
+
+  run(
+    `UPDATE orders SET local_currency_approval = ?, local_currency_amount = ?, local_currency_charge_type = ?,
+            local_currency_paid_at = datetime('now','localtime'), paid = 1,
+            updated_at = datetime('now','localtime') WHERE id = ?`,
+    approval, amount, chargeType, order.id
+  );
+  run('INSERT INTO order_logs(order_id, from_status, to_status, memo, actor) VALUES(?,?,?,?,?)',
+    order.id, order.status, order.status,
+    `지역화폐 결제확인 ${amount.toLocaleString('ko-KR')}원 · 승인번호 ${approval} (${chargeType})`, actor.name);
+  auth.audit(req, actor, '지역화폐 결제확인', order.order_no, `${amount}원 / ${approval}`);
+  sendJson(res, 200, { ok: true, paid: true });
+});
+
+/** 지역화폐 결제 현황 — 결제대기 목록과 기간 집계(지자체 보고용) */
+router.get('/api/admin/localcurrency', (req, res, ctx) => {
+  auth.requireAdmin(req);
+  const from = ctx.query.get('from') || monthStart();
+  const to = ctx.query.get('to') || monthEnd();
+  const cfg = localCurrency.config();
+
+  const pending = all(
+    `SELECT id, order_no, created_at, customer_name, customer_phone, total_amount,
+            local_currency_amount, local_currency_charge_type, status
+     FROM orders
+     WHERE pay_method = ? AND (local_currency_approval IS NULL OR local_currency_approval = '')
+       AND status != '반품'
+     ORDER BY id DESC`, localCurrency.LOCAL);
+
+  const confirmed = all(
+    `SELECT id, order_no, created_at, customer_name, total_amount, local_currency_amount,
+            local_currency_approval, local_currency_charge_type, local_currency_paid_at, status
+     FROM orders
+     WHERE pay_method = ? AND local_currency_approval IS NOT NULL AND local_currency_approval != ''
+       AND date(local_currency_paid_at) BETWEEN date(?) AND date(?)
+     ORDER BY id DESC`, localCurrency.LOCAL, from, to);
+
+  const totals = get(
+    `SELECT COUNT(*) AS orders, IFNULL(SUM(local_currency_amount),0) AS amount
+     FROM orders
+     WHERE pay_method = ? AND local_currency_approval IS NOT NULL AND local_currency_approval != ''
+       AND status != '반품' AND date(local_currency_paid_at) BETWEEN date(?) AND date(?)`,
+    localCurrency.LOCAL, from, to);
+
+  const bySupplier = all(
+    `SELECT s.name AS supplier, COUNT(DISTINCT o.id) AS orders, IFNULL(SUM(oi.subtotal),0) AS amount
+     FROM orders o
+     JOIN order_items oi ON oi.order_id = o.id
+     LEFT JOIN suppliers s ON s.id = oi.supplier_id
+     WHERE o.pay_method = ? AND o.local_currency_approval IS NOT NULL AND o.local_currency_approval != ''
+       AND o.status != '반품' AND oi.refunded = 0
+       AND date(o.local_currency_paid_at) BETWEEN date(?) AND date(?)
+     GROUP BY s.name ORDER BY amount DESC`, localCurrency.LOCAL, from, to);
+
+  sendJson(res, 200, {
+    period: { from, to },
+    config: cfg,
+    chargeTypes: localCurrency.CHARGE_TYPES,
+    pending, confirmed, totals, bySupplier,
+    merchants: all(
+      `SELECT id, name, local_currency FROM suppliers WHERE status = '계약중' ORDER BY id`
+    ).map((r) => ({ id: r.id, name: r.name, usable: r.local_currency == null ? true : !!r.local_currency })),
+  });
+});
+
+/** 지역화폐 결제 내역 CSV — 지자체 제출·정산 대사용 */
+router.get('/api/admin/localcurrency.csv', (req, res, ctx) => {
+  auth.requireAdmin(req);
+  const from = ctx.query.get('from') || monthStart();
+  const to = ctx.query.get('to') || monthEnd();
+  const rows = all(
+    `SELECT order_no, local_currency_paid_at, customer_name, total_amount,
+            local_currency_amount, local_currency_approval, local_currency_charge_type, status
+     FROM orders
+     WHERE pay_method = ? AND local_currency_approval IS NOT NULL AND local_currency_approval != ''
+       AND date(local_currency_paid_at) BETWEEN date(?) AND date(?)
+     ORDER BY local_currency_paid_at`, localCurrency.LOCAL, from, to);
+  const csv = toCsv(
+    ['주문번호', '결제일시', '주문자', '주문금액', '지역화폐 결제액', '카드 승인번호', '결제 방식', '주문상태'],
+    rows.map((r) => [
+      r.order_no, r.local_currency_paid_at, r.customer_name, r.total_amount,
+      r.local_currency_amount, r.local_currency_approval, r.local_currency_charge_type, r.status,
+    ])
+  );
+  sendCsv(res, `지역화폐결제_${from}_${to}.csv`, csv);
 });
 
 /** 외부 채널(쿠팡 등) 주문 수동 입력 — 1단계는 API 연동 없이 관리자가 직접 등록 */
@@ -780,6 +934,7 @@ router.get('/api/admin/settings', (req, res) => {
     freeShipOver: Number(setting('free_ship_over', '50000')),
     siteBaseUrl: setting('site_base_url', ''),
     orderForwardSla: setting('order_forward_sla', ''),
+    localCurrency: localCurrency.config(),
   });
 });
 
@@ -790,8 +945,18 @@ router.put('/api/admin/settings', async (req, res) => {
     mallName: 'mall_name', orgName: 'org_name', orgBizNo: 'org_biz_no', orgAddress: 'org_address',
     orgPhone: 'org_phone', bankAccount: 'bank_account', defaultShippingFee: 'default_shipping_fee',
     freeShipOver: 'free_ship_over', siteBaseUrl: 'site_base_url', orderForwardSla: 'order_forward_sla',
+    localCurrencyName: 'local_currency_name', localCurrencyMerchantNo: 'local_currency_merchant_no',
+    localCurrencyNotice: 'local_currency_notice', localCurrencyMaxPerOrder: 'local_currency_max_per_order',
   };
   for (const [field, key] of Object.entries(map)) if (b[field] !== undefined) setSetting(key, b[field]);
+  // 켜고 끄는 값은 '1'/'0' 으로 맞춰 저장한다.
+  for (const [field, key] of [['localCurrencyEnabled', 'local_currency_enabled'],
+                              ['localCurrencyCoversShipping', 'local_currency_covers_shipping']]) {
+    if (b[field] !== undefined) setSetting(key, b[field] ? '1' : '0');
+  }
+  if (b.localCurrencyEnabled !== undefined) {
+    auth.audit(req, actor, '지역화폐 결제 설정 변경', '자사몰', b.localCurrencyEnabled ? '사용' : '중지');
+  }
   sendJson(res, 200, { ok: true });
 });
 

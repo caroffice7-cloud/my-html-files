@@ -5,6 +5,7 @@
 const { get, all, run, tx, setting } = require('../db');
 const { Router, readJson, sendJson, HttpError } = require('../lib/http');
 const { effectiveRate } = require('../lib/commission');
+const localCurrency = require('../lib/localcurrency');
 
 const router = new Router();
 const SELF = '자사몰';
@@ -33,6 +34,7 @@ function decorate(product) {
     shippingFee: product.shipping_fee,
     freeShipOver: product.free_ship_over,
     supplier: get('SELECT id, name, ceo, address, intro, biz_no FROM suppliers WHERE id = ?', product.supplier_id),
+    localCurrency: localCurrency.eligibilityOf(product).usable,
     images: all('SELECT url FROM product_images WHERE product_id = ? ORDER BY sort_order, id', product.id).map((r) => r.url),
   };
 }
@@ -53,6 +55,11 @@ router.get('/api/shop/info', (req, res) => {
     orgAddress: setting('org_address', ''),
     orgPhone: setting('org_phone', ''),
     bankAccount: setting('bank_account', ''),
+    payMethods: localCurrency.config().enabled ? localCurrency.PAY_METHODS : [localCurrency.BANK],
+    localCurrency: (() => {
+      const c = localCurrency.config();
+      return { enabled: c.enabled, name: c.name, coversShipping: c.coversShipping, maxPerOrder: c.maxPerOrder, notice: c.notice };
+    })(),
     shippingFee: Number(setting('default_shipping_fee', '3500')),
     freeShipOver: Number(setting('free_ship_over', '50000')),
     categories: all(
@@ -154,9 +161,19 @@ function priceOrder(rawItems) {
 router.post('/api/shop/quote', async (req, res) => {
   const body = await readJson(req);
   const q = priceOrder(body.items);
+  const lc = localCurrency.checkCart(q.lines, q);
   sendJson(res, 200, {
     goods: q.goods, shipping: q.shipping, total: q.total,
     lines: q.lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, subtotal: l.subtotal })),
+    localCurrency: {
+      enabled: lc.config.enabled,
+      name: lc.config.name,
+      eligible: lc.eligible,
+      reason: lc.reason,
+      blocked: lc.blocked,
+      payable: lc.payable,
+      coversShipping: lc.config.coversShipping,
+    },
   });
 });
 
@@ -173,6 +190,17 @@ router.post('/api/shop/orders', async (req, res) => {
   const quote = priceOrder(body.items);
   if (!quote.lines.length) throw new HttpError(400, '주문할 상품이 없습니다.');
 
+  // 결제수단은 클라이언트 값을 그대로 믿지 않고 서버에서 다시 판정한다.
+  const payMethod = localCurrency.normalizePayMethod(body.payMethod);
+  const lc = localCurrency.checkCart(quote.lines, quote);
+  let localAmount = 0;
+  let chargeType = null;
+  if (localCurrency.isLocal(payMethod)) {
+    if (!lc.eligible) throw new HttpError(409, lc.reason || '이 주문은 지역화폐로 결제할 수 없습니다.');
+    localAmount = lc.payable;
+    chargeType = localCurrency.CHARGE_TYPES.includes(body.chargeType) ? body.chargeType : localCurrency.CHARGE_TYPES[0];
+  }
+
   const result = tx(() => {
     const orderNo = nextOrderNo();
     const ins = run(
@@ -181,7 +209,7 @@ router.post('/api/shop/orders', async (req, res) => {
        VALUES(?,?,?,?,?,?,?,?,?,'주문접수',?,?,?,?,?)`,
       orderNo, SELF, name, phone, c.email || null, c.zipcode || null, c.address,
       c.addressDetail || null, body.memo || null,
-      quote.goods, quote.shipping, quote.total, body.payMethod || '무통장입금', c.payerName || name
+      quote.goods, quote.shipping, quote.total, payMethod, c.payerName || name
     );
     const orderId = Number(ins.lastInsertRowid);
 
@@ -195,18 +223,29 @@ router.post('/api/shop/orders', async (req, res) => {
       );
       if (l.qty > 0) run('UPDATE products SET stock = MAX(0, stock - ?) WHERE id = ? AND stock > 0', l.qty, l.productId);
     }
+    if (localAmount > 0) {
+      run(
+        `UPDATE orders SET local_currency_amount = ?, local_currency_charge_type = ?
+         WHERE id = ?`, localAmount, chargeType, orderId
+      );
+    }
     run('INSERT INTO order_logs(order_id, from_status, to_status, memo) VALUES(?,?,?,?)',
-      orderId, null, '주문접수', '자사몰 주문');
+      orderId, null, '주문접수',
+      localAmount > 0 ? `자사몰 주문 · 지역화폐 결제요청 ${localAmount.toLocaleString('ko-KR')}원 (${chargeType})` : '자사몰 주문');
     return { orderNo, orderId };
   });
 
+  const guide = localCurrency.guidanceFor(payMethod, { goods: quote.goods, shipping: quote.shipping, total: quote.total });
   sendJson(res, 201, {
     ok: true,
     orderNo: result.orderNo,
     amounts: { goods: quote.goods, shipping: quote.shipping, total: quote.total },
-    payMethod: body.payMethod || '무통장입금',
-    bankAccount: setting('bank_account', ''),
-    message: '주문이 접수되었습니다. 입금이 확인되면 공급처로 전달되어 발송됩니다.',
+    payMethod,
+    payTitle: guide.title,
+    bankAccount: localCurrency.isLocal(payMethod) ? guide.detail : setting('bank_account', ''),
+    localCurrencyAmount: localAmount,
+    chargeType,
+    message: guide.message,
   });
 });
 
@@ -220,6 +259,10 @@ router.get('/api/shop/orders/:orderNo', (req, res, ctx) => {
       orderNo: order.order_no, status: order.status, createdAt: order.created_at,
       goods: order.goods_amount, shipping: order.shipping_fee, total: order.total_amount,
       paid: !!order.paid, payMethod: order.pay_method,
+      localCurrencyAmount: order.local_currency_amount || 0,
+      localCurrencyApproval: order.local_currency_approval || '',
+      localCurrencyPaidAt: order.local_currency_paid_at || '',
+      chargeType: order.local_currency_charge_type || '',
       address: `${order.address || ''} ${order.address_detail || ''}`.trim(),
     },
     items: all('SELECT name, spec, qty, unit_price, subtotal, tracking_no FROM order_items WHERE order_id = ?', order.id),

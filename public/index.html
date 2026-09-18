@@ -80,10 +80,24 @@
     <div class="panel">
       <h3>결제 방법</h3>
       <div class="field">
-        <select id="payMethod"><option value="무통장입금">무통장입금 (계좌이체)</option></select>
+        <select id="payMethod" onchange="onPayMethodChange()"></select>
       </div>
-      <div class="field"><label>입금자명 (주문자와 다를 경우)</label><input id="cPayer"></div>
-      <div class="notice" id="bankNotice"></div>
+
+      <!-- 지역화폐 결제 -->
+      <div id="localBox" class="hidden">
+        <div class="field">
+          <label for="chargeType">결제 방식</label>
+          <select id="chargeType"></select>
+        </div>
+        <div class="notice" id="localNotice"></div>
+      </div>
+      <div id="localBlocked"></div>
+
+      <!-- 무통장입금 -->
+      <div id="bankBox">
+        <div class="field"><label>입금자명 (주문자와 다를 경우)</label><input id="cPayer"></div>
+        <div class="notice" id="bankNotice"></div>
+      </div>
       <p class="muted" style="margin-top:10px">
         신선식품·가공식품은 포장을 개봉하여 상품 가치가 훼손된 경우 청약철회가 제한될 수 있습니다.
         상품 하자·오배송은 수령 후 24시간 이내에 사진과 함께 알려주시면 재발송 또는 환불해 드립니다.
